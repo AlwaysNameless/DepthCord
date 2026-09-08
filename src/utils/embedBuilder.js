@@ -8,7 +8,7 @@ export function createEmbed({
   description,
   color = BRAND_COLOR,
   fields = [],
-  footer = "DepthCord • Deepwoken Database",
+  footer = "DepthCord • By Nameless",
   timestamp = true,
   url = null,
   thumbnail = null,
@@ -33,6 +33,18 @@ export function createEmbed({
 
 export function errorEmbed(message) {
   return createEmbed({
-    title: "❌ Error"
+    title: "❌ Error",
+    description: message,
+    color: 0xff4444,
+    footer: "DepthCord • By Nameless"
+  });
+}
+
+export function successEmbed(message) {
+  return createEmbed({
+    title: "✅ Success",
+    description: message,
+    color: 0x44ff44,
+    footer: "DepthCord • By Nameless"
   });
 }

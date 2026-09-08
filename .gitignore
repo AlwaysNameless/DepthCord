@@ -1,5 +1,5 @@
 # Node
-node_modules/
+.node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -31,4 +31,5 @@ Thumbs.db
 dist/
 build/
 logs/
-*.log
+*.log.env
+package-lock.json

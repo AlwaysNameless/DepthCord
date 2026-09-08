@@ -42,3 +42,15 @@ export function removeTarget(name) {
   const stmt = db.prepare(`DELETE FROM registry WHERE name = ?`);
   return stmt.run(name.toLowerCase());
 }
+
+export function listTargets(alignment = null) {
+  let query = "SELECT * FROM registry";
+  const params = [];
+  if (alignment && alignment !== "all") {
+    query += " WHERE alignment = ?";
+    params.push(alignment);
+  }
+  query += " ORDER BY name ASC";
+  const stmt = db.prepare(query);
+  return stmt.all(...params);
+}
