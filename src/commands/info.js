@@ -3,64 +3,23 @@ import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 
 export const data = new SlashCommandBuilder()
   .setName("info")
-  .setDescription("Bot information and stats");
+  .setDescription("Show all available commands");
 
 export async function execute(interaction) {
-  const client = interaction.client;
-  const guild = interaction.guild;
+  const commands = interaction.client.commands;
 
-  const totalCommands = client.commands.size;
-  const totalUsers = client.users.cache.size;
-  const totalGuilds = client.guilds.cache.size;
-  const uptime = formatUptime(client.uptime);
+  let commandList = "";
+  for (const [name, cmd] of commands) {
+    const desc = cmd.data?.description || "No description";
+    commandList += `**/${name}** – ${desc}\n`;
+  }
 
   const embed = new EmbedBuilder()
-    .setTitle("⚡ DepthCord")
+    .setTitle("⚡ DepthCord – Commands")
     .setColor(0x8b5cf6)
-    .setDescription("Lost in the Voidsea's not-so-secret weapon.")
-    .addFields(
-      {
-        name: "📊 Stats",
-        value: [
-          `**Commands:** ${totalCommands}`,
-          `**Users:** ${totalUsers}`,
-          `**Servers:** ${totalGuilds}`,
-          `**Uptime:** ${uptime}`
-        ].join("\n"),
-        inline: false
-      },
-      {
-        name: "📦 Tech",
-        value: ["Discord.js v14", "Node.js v22", "SQLite", "Fandom API"].join(
-          "\n"
-        ),
-        inline: true
-      },
-      {
-        name: "👤 Created By",
-        value: "**Nameless**",
-        inline: true
-      },
-      {
-        name: "💙",
-        value:
-          "Never played the game. Just wanted to help my brother's guild. Hope this makes things easier for all of you.",
-        inline: false
-      }
-    )
+    .setDescription(commandList || "No commands found.")
     .setFooter({ text: "DepthCord • By Nameless" })
     .setTimestamp();
 
   return interaction.reply({ embeds: [embed] });
-}
-
-function formatUptime(ms) {
-  const seconds = Math.floor(ms / 1000);
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
 }
