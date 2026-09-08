@@ -1,4 +1,3 @@
-// src/commands/info.js
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 
 export const data = new SlashCommandBuilder()
@@ -7,8 +6,8 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   const commands = interaction.client.commands;
-
   let commandList = "";
+
   for (const [name, cmd] of commands) {
     const desc = cmd.data?.description || "No description";
     commandList += `**/${name}** – ${desc}\n`;

@@ -11,7 +11,7 @@ export function startScheduler(client) {
 
   scheduledInterval = setInterval(() => {
     const now = Date.now();
-    const reminderStart = now + REMINDER_WINDOW - 5 * 60 * 1000; // 10 min buffer
+    const reminderStart = now + REMINDER_WINDOW - 5 * 60 * 1000;
     const reminderEnd = now + REMINDER_WINDOW + 5 * 60 * 1000;
 
     const rows = db
@@ -43,7 +43,8 @@ export function startScheduler(client) {
         fields: [
           {
             name: "📅 Time",
-            value: `<t:${Math.floor(row.scheduled_start / 1000)}:F>`,
+            value:
+              row.time_raw || `<t:${Math.floor(row.scheduled_start / 1000)}:F>`,
             inline: true
           },
           {
@@ -53,7 +54,7 @@ export function startScheduler(client) {
           },
           { name: "🆔 ID", value: `\`${row.event_id}\``, inline: false }
         ],
-        footer: `DeepIsCalling • Use /event signup id:${row.event_id} to join`
+        footer: `DepthCord • By Nameless • Use /event signup id:${row.event_id} to join`
       });
 
       channel.send({

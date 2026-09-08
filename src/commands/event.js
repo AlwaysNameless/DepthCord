@@ -16,7 +16,7 @@ import {
 import { errorEmbed, successEmbed } from "../utils/embedBuilder.js";
 
 const ALLOWED_ROLES = [
-  "1546667474832068649", // Your main role
+  "1546667474832068649",
   "1535374890566287392",
   "1535374892260925541",
   "1535374893607034950",
@@ -38,7 +38,6 @@ function buildEventEmbed(event) {
       ? roster.map((id) => `<@${id}>`).join("\n")
       : "No one yet";
   const count = roster.length;
-
   const timeDisplay = event.time_raw || "Time not set";
 
   const embed = new EmbedBuilder()
@@ -162,10 +161,7 @@ export async function execute(interaction) {
     const title = interaction.options.getString("title");
     const type = interaction.options.getString("type");
     const timeStr = interaction.options.getString("time");
-
-    // Use current time + 1 hour as default sort time, but display whatever the user typed
-    const timestamp = Date.now() + 3600000; // 1 hour from now
-
+    const timestamp = Date.now() + 3600000;
     const eventId = randomUUID().slice(0, 8);
     const roster = [];
 
@@ -175,7 +171,7 @@ export async function execute(interaction) {
         title,
         type,
         startTime: timestamp,
-        timeRaw: timeStr, // Store exactly what the user typed
+        timeRaw: timeStr,
         discordEventId: null,
         roster
       });
@@ -260,7 +256,6 @@ export async function execute(interaction) {
   });
 }
 
-// Button Handler
 export async function handleButton(interaction) {
   const customId = interaction.customId;
   const userId = interaction.user.id;
