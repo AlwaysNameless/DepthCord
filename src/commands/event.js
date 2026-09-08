@@ -15,7 +15,15 @@ import {
 } from "../db/queries/events.js";
 import { errorEmbed, successEmbed } from "../utils/embedBuilder.js";
 
-const ALLOWED_ROLES = ["1546667474832068649"];
+const ALLOWED_ROLES = [
+  "1546667474832068649", // Your main role
+  "1535374890566287392",
+  "1535374892260925541",
+  "1535374893607034950",
+  "1535374898229289040",
+  "1535374899676450916",
+  "1535374896874655915"
+];
 
 function hasPermission(interaction) {
   return interaction.member.roles.cache.some((role) =>

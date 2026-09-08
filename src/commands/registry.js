@@ -80,8 +80,7 @@ export const data = new SlashCommandBuilder()
       )
   );
 
-// Role IDs that can use add/remove
-const ALLOWED_ROLES = ["1546667474832068649"];
+const ALLOWED_ROLES = ["1535374890566287392", "1535374892260925541"];
 
 function hasPermission(interaction) {
   return interaction.member.roles.cache.some((role) =>
@@ -111,7 +110,6 @@ export async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
   const name = interaction.options.getString("name");
 
-  // Restrict add and remove to specific roles
   if (sub === "add" || sub === "remove") {
     if (!hasPermission(interaction)) {
       return interaction.reply({
