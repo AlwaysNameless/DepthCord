@@ -11,7 +11,30 @@ export async function searchWiki(query) {
   const res = await fetch(`${BASE_URL}?${params}`);
   const data = await res.json();
   if (!data.query?.search?.length) return null;
-  return data.query.search[0].title;
+
+  const results = data.query.search;
+  const target = query.toLowerCase().trim();
+
+  const exact = results.find((r) => r.title.toLowerCase().trim() === target);
+  if (exact) return exact.title;
+
+  const top = results[0];
+  const topLower = top.title.toLowerCase();
+
+  const queryWords = target.split(/\s+/).filter((w) => w.length > 2);
+  const sharesWord = queryWords.some((w) => topLower.includes(w));
+
+  console.log(
+    "[searchWiki] query:",
+    target,
+    "| top:",
+    top.title,
+    "| shares word:",
+    sharesWord
+  );
+
+  if (sharesWord) return top.title;
+  return null;
 }
 
 export async function getPageWikitext(title) {
@@ -68,11 +91,6 @@ export async function getPageWikitext(title) {
   };
 }
 
-/**
- * Counts braces forward from a given line index to find where a
- * {{...}} template block closes. Returns the ending line index, or
- * a capped fallback if no matching close is found.
- */
 function findBlockEnd(lines, startIdx) {
   let braceCount = 0;
   let blockEnd = -1;
@@ -103,18 +121,42 @@ function findBlockEnd(lines, startIdx) {
   return blockEnd;
 }
 
-/**
- * Finds a {{MantraInfobox...}} block whose |name= field matches mantraName.
- * Handles the case where the name appears on its own line, separate from
- * the opening {{MantraInfobox line (which may also have suffixes like "|end").
- * Multiple mantra blocks can live on one page (e.g. Thundercall), so we must
- * search by name rather than just grabbing the first block found.
- */
+function findBlockEndFromIndex(lines, startLineIdx, startCharIdx) {
+  let braceCount = 0;
+  let blockEnd = -1;
+  let foundEnd = false;
+
+  for (let j = startLineIdx; j < lines.length; j++) {
+    const line = lines[j];
+    const fromChar = j === startLineIdx ? startCharIdx : 0;
+
+    for (let k = fromChar; k < line.length; k++) {
+      if (line[k] === "{" && line[k + 1] === "{") {
+        braceCount++;
+        k++;
+      } else if (line[k] === "}" && line[k + 1] === "}") {
+        braceCount--;
+        k++;
+        if (braceCount === 0) {
+          blockEnd = j;
+          foundEnd = true;
+          break;
+        }
+      }
+    }
+    if (foundEnd) break;
+  }
+
+  if (blockEnd === -1) {
+    blockEnd = Math.min(startLineIdx + 50, lines.length - 1);
+  }
+  return blockEnd;
+}
+
 function extractMantraBlock(wikitext, mantraName) {
   const lines = wikitext.split("\n");
   const target = mantraName.toLowerCase().trim();
 
-  // Step 1: find the line that declares |name=<mantraName>
   let nameLineIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
@@ -131,7 +173,6 @@ function extractMantraBlock(wikitext, mantraName) {
   }
   if (nameLineIdx === -1) return null;
 
-  // Step 2: search backwards from the name line for the block opener
   let blockStart = -1;
   for (let j = nameLineIdx; j >= 0; j--) {
     if (lines[j].includes("{{MantraInfobox")) {
@@ -141,80 +182,76 @@ function extractMantraBlock(wikitext, mantraName) {
   }
   if (blockStart === -1) return null;
 
-  // Step 3: count braces forward from blockStart to find the matching close
   const blockEnd = findBlockEnd(lines, blockStart);
   return lines.slice(blockStart, blockEnd + 1).join("\n");
 }
 
-/**
- * Finds the first infobox-style template on the page whose name matches
- * one of the given template name fragments (case-insensitive, e.g.
- * "Weapon_Infobox", "Talent_Infobox"). Unlike mantra blocks, these
- * templates are single flat blocks with no |name= field to search by —
- * the page title IS the item, so we just grab the first match.
- */
 function extractNamedInfobox(wikitext, templateNameFragments) {
   const lines = wikitext.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const openIdx = line.indexOf("{{");
-    if (openIdx === -1) continue;
 
-    for (const fragment of templateNameFragments) {
-      const normalizedLine = line
-        .slice(openIdx)
-        .replace(/[_\s]/g, "")
-        .toLowerCase();
-      const normalizedFragment = fragment.replace(/[_\s]/g, "").toLowerCase();
-      if (normalizedLine.startsWith(`{{${normalizedFragment}`)) {
-        const blockEnd = findBlockEnd(lines, i);
-        return lines.slice(i, blockEnd + 1).join("\n");
+    let searchFrom = 0;
+    while (true) {
+      const openIdx = line.indexOf("{{", searchFrom);
+      if (openIdx === -1) break;
+
+      for (const fragment of templateNameFragments) {
+        const normalizedLine = line
+          .slice(openIdx)
+          .replace(/[_\s]/g, "")
+          .toLowerCase();
+        const normalizedFragment = fragment.replace(/[_\s]/g, "").toLowerCase();
+        if (normalizedLine.startsWith(`{{${normalizedFragment}`)) {
+          const blockEnd = findBlockEndFromIndex(lines, i, openIdx);
+          return lines.slice(i, blockEnd + 1).join("\n");
+        }
       }
+      searchFrom = openIdx + 2;
     }
   }
   return null;
 }
 
-/**
- * Generic fallback: finds the FIRST template on the page whose name
- * contains "infobox" (case-insensitive), regardless of exact naming.
- * Used as a last resort when we don't know the exact template name
- * for a given content type.
- */
+function extractOathBlock(wikitext) {
+  return extractNamedInfobox(wikitext, ["Oath"]);
+}
+
 function extractAnyInfobox(wikitext) {
   const lines = wikitext.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const openIdx = line.indexOf("{{");
-    if (openIdx === -1) continue;
 
-    const afterBraces = line.slice(openIdx + 2);
-    const nameMatch = afterBraces.match(/^([^|}\n]+)/);
-    if (nameMatch && /infobox/i.test(nameMatch[1])) {
-      const blockEnd = findBlockEnd(lines, i);
-      return lines.slice(i, blockEnd + 1).join("\n");
+    let searchFrom = 0;
+    while (true) {
+      const openIdx = line.indexOf("{{", searchFrom);
+      if (openIdx === -1) break;
+
+      const afterBraces = line.slice(openIdx + 2);
+      const nameMatch = afterBraces.match(/^([^|}\n]+)/);
+      if (nameMatch && /infobox/i.test(nameMatch[1])) {
+        const blockEnd = findBlockEndFromIndex(lines, i, openIdx);
+        return lines.slice(i, blockEnd + 1).join("\n");
+      }
+      searchFrom = openIdx + 2;
     }
   }
   return null;
 }
 
-/**
- * Finds a {{TalentInfo/Talents|...}} block whose |name= param matches
- * talentName. Unlike MantraInfobox (one field per line) or Weapon/Talent
- * infoboxes (single block per page), TalentInfo/Talents blocks are laid
- * out as many piped fields flowing across several lines, and MANY of
- * these blocks live together on the single master "Talents" page. So we
- * have to scan the whole page, extract every block, and match by name.
- */
 function extractTalentBlock(wikitext, talentName) {
   const lines = wikitext.split("\n");
   const target = talentName.toLowerCase().trim();
+  console.log("[extractTalentBlock] looking for:", target);
+  console.log("[extractTalentBlock] total lines:", lines.length);
 
   const candidates = [];
+  let templateMatchCount = 0;
   for (let i = 0; i < lines.length; i++) {
     if (!/\{\{\s*TalentInfo\/Talents/i.test(lines[i])) continue;
+    templateMatchCount++;
 
     const blockEnd = findBlockEnd(lines, i);
     const block = lines.slice(i, blockEnd + 1).join("\n");
@@ -223,27 +260,79 @@ function extractTalentBlock(wikitext, talentName) {
     if (nameMatch) {
       candidates.push({ block, blockName: nameMatch[1].trim().toLowerCase() });
     }
-    i = blockEnd; // don't rescan lines already consumed by this block
+    i = blockEnd;
   }
 
-  // Prefer an exact name match first...
-  let found = candidates.find((c) => c.blockName === target);
-  if (found) return found.block;
+  console.log("[extractTalentBlock] template matches:", templateMatchCount);
+  console.log("[extractTalentBlock] candidates with name:", candidates.length);
 
-  // ...then fall back to a loose substring match either direction.
+  let found = candidates.find((c) => c.blockName === target);
+  if (found) {
+    console.log("[extractTalentBlock] exact match found:", found.blockName);
+    return found.block;
+  }
+
   found = candidates.find(
     (c) => c.blockName.includes(target) || target.includes(c.blockName)
   );
-  return found ? found.block : null;
+  if (found) {
+    console.log("[extractTalentBlock] substring match found:", found.blockName);
+    return found.block;
+  }
+
+  console.log(
+    "[extractTalentBlock] NO MATCH. Closest names:",
+    candidates
+      .map((c) => c.blockName)
+      .filter(
+        (n) => n.includes(target.slice(0, 5)) || target.includes(n.slice(0, 5))
+      )
+      .slice(0, 10)
+  );
+  return null;
 }
 
-/**
- * Splits a string on top-level "|" characters only — i.e. ignores any "|"
- * that appears inside a nested {{...}} template or [[...]] link. Needed
- * to correctly separate TalentInfo/Talents' piped fields, since those
- * fields commonly contain nested templates/links that themselves use "|"
- * (e.g. {{t|Some Talent|r=rare}}, [[Cauldron|a cauldron]]).
- */
+function extractUlidTalent(wikitext, talentName) {
+  const lines = wikitext.split("\n");
+  const target = talentName.toLowerCase().trim();
+  console.log("[extractUlidTalent] looking for:", target);
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const ulidMatch = trimmed.match(/^\{\{ulid\|([^}]+)\}\}$/i);
+    if (!ulidMatch) continue;
+    if (ulidMatch[1].trim().toLowerCase() !== target) continue;
+
+    console.log("[extractUlidTalent] found ulid marker at line", i);
+
+    let j = i + 1;
+    while (j < lines.length && !lines[j].trim()) j++;
+    if (j >= lines.length) {
+      console.log("[extractUlidTalent] no description line after marker");
+      return null;
+    }
+
+    const descLine = lines[j].trim();
+    const m = descLine.match(/^\*\s*([^[]+?)\s*\[([^\]]+)\]\s*-\s*(.+)$/);
+    if (!m) {
+      console.log(
+        "[extractUlidTalent] description line did not match pattern:",
+        descLine
+      );
+      return null;
+    }
+
+    return {
+      name: cleanWikiValue(m[1].trim()),
+      tags: cleanWikiValue(m[2].trim()),
+      description: cleanWikiValue(m[3].trim())
+    };
+  }
+
+  console.log("[extractUlidTalent] no ulid marker found");
+  return null;
+}
+
 function splitTopLevelPipes(text) {
   const parts = [];
   let depthCurly = 0;
@@ -289,14 +378,39 @@ function splitTopLevelPipes(text) {
   return parts;
 }
 
-/**
- * Parses a {{TalentInfo/Talents|key=value|key=value...}} block into a
- * flat key/value object. Intentionally leaves inner {{t|...}}, {{abf|...}},
- * {{status|...}} etc. macros mostly intact (only stripping images/links) —
- * the display layer is responsible for turning those into readable text,
- * since fully resolving them here would lose information other callers
- * might want raw.
- */
+function cleanWikiValue(value) {
+  return value
+    .replace(/\{\{stats\|[^|]*\|([^{}]*)\}\}/gi, "$1")
+    .replace(/\{\{sic\|[^{}]*\}\}/gi, "")
+    .replace(
+      /\{\{c\|([^|{}]+)\|([^{}]+)\}\}/gi,
+      (_m, type, amount) => `${amount.trim()} ${type.trim()}`
+    )
+    .replace(/\{\{t\|([^|{}]+)[^{}]*\}\}/gi, "$1")
+    .replace(/\{\{(?:status|cl)\|([^{}]*)\}\}/gi, (_m, inner) => {
+      const parts = inner.split("|").map((p) => p.trim());
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (parts[i] && !/^[a-z]+\s*=/i.test(parts[i])) return parts[i];
+      }
+      return parts[parts.length - 1] || "";
+    })
+    .replace(/\{\{ttag\|([^{}]+)\}\}/gi, "[$1]")
+    .replace(/\{\{abf\|(?:[^|{}]*\|)?([^{}]*)\}\}/gi, "$1")
+    .replace(/\[\[\s*(?:File|Image)\s*:[^\]]*\]\]/gi, "")
+    .replace(
+      /(?:^|\n)\s*(?:File|Image)\s*:[^\n]*(?:\.gif|\.png|\.jpg|\.jpeg|\.webp)[^\n]*/gi,
+      ""
+    )
+    .replace(/\{\{[^{}]*\}\}/g, "")
+    .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, "$1")
+    .replace(/<[^>]*>/g, "")
+    .replace(/''/g, "")
+    .replace(/\n{2,}/g, "\n")
+    .trim()
+    .replace(/\}\}\s*$/, "")
+    .trim();
+}
+
 function parseTalentBlock(block) {
   let text = block.trim();
   text = text.replace(/^\{\{\s*TalentInfo\/Talents/i, "");
@@ -310,27 +424,14 @@ function parseTalentBlock(block) {
     const eqIdx = part.indexOf("=");
     if (eqIdx <= 0) continue;
     const key = part.slice(0, eqIdx).trim().toLowerCase();
-    let value = part.slice(eqIdx + 1).trim();
-
-    value = value
-      .replace(/\[\[\s*(?:File|Image)\s*:[^\]]*\]\]/gi, "")
-      .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, "$1")
-      .replace(/<[^>]*>/g, "")
-      .replace(/''/g, "")
-      .trim();
-
+    const rawValue = part.slice(eqIdx + 1).trim();
+    const value = cleanWikiValue(rawValue);
     if (value) data[key] = value;
   }
 
   return data;
 }
 
-/**
- * Parses a {{SomeInfobox ... }} block into a flat key/value object.
- * Strips the block's own opening/closing delimiters first so a
- * lingering "}}" terminator line never gets glued onto the last
- * field's value.
- */
 function parseInfoboxBlock(block) {
   const data = {};
   const innerLines = block.split("\n");
@@ -374,23 +475,7 @@ function parseInfoboxBlock(block) {
   }
 
   for (const key in data) {
-    let value = data[key];
-    value = value
-      .replace(/\{\{stats\|[^|]*\|([^}]*)\}\}/g, "$1")
-      .replace(/\[\[\s*(?:File|Image)\s*:[^\]]*\]\]/gi, "")
-      .replace(
-        /(?:^|\n)\s*(?:File|Image)\s*:[^\n]*(?:\.gif|\.png|\.jpg|\.jpeg|\.webp)[^\n]*/gi,
-        ""
-      )
-      .replace(/\{\{[^}]*\}\}/g, "")
-      .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, "$1")
-      .replace(/<[^>]*>/g, "")
-      .replace(/''/g, "")
-      .replace(/\n{2,}/g, "\n")
-      .trim()
-      .replace(/\}\}\s*$/, "")
-      .trim();
-    data[key] = value;
+    data[key] = cleanWikiValue(data[key]);
   }
   return data;
 }
@@ -403,24 +488,47 @@ export function getField(data, aliases) {
   return null;
 }
 
-/**
- * Fetches page info and extracts the relevant infobox block.
- *
- * @param {string} title - The wiki page title to fetch. For talents this
- *   is only used as a fallback; the primary lookup always checks the
- *   master "Talents" page regardless of what's passed here.
- * @param {string} [searchQuery] - For mantras/talents: the specific item
- *   name to look for inside a shared page's many named blocks.
- * @param {"mantra"|"weapon"|"talent"} [kind] - Which infobox template to
- *   look for.
- */
 export async function getPageInfo(title, searchQuery, kind) {
   const searchName = searchQuery || title;
+  console.log(
+    "[getPageInfo] title:",
+    title,
+    "| searchQuery:",
+    searchQuery,
+    "| kind:",
+    kind
+  );
 
-  // Talents live as individual blocks on the shared "Talents" page rather
-  // than on their own pages, so resolve those directly by name first,
-  // bypassing whatever (often wrong) page `title` fuzzy search landed on.
+  if (kind === "oath") {
+    console.log("[getPageInfo] oath lookup:", searchName);
+    const oathCandidates = [];
+    if (!searchName.toLowerCase().startsWith("oath:")) {
+      oathCandidates.push(`Oath: ${searchName}`);
+    }
+    oathCandidates.push(searchName);
+    if (title && !oathCandidates.includes(title)) oathCandidates.push(title);
+
+    for (const candidateTitle of oathCandidates) {
+      console.log("[getPageInfo] trying oath page:", candidateTitle);
+      const oathPage = await getPageWikitext(candidateTitle);
+      if (!oathPage) continue;
+      const block = extractOathBlock(oathPage.wikitext);
+      if (block) {
+        const data = parseInfoboxBlock(block);
+        if (Object.keys(data).length > 0) {
+          return {
+            title: oathPage.title,
+            infobox: data,
+            source: "oath-infobox",
+            redirect: oathPage.redirectTarget
+          };
+        }
+      }
+    }
+  }
+
   if (kind === "talent") {
+    console.log("[getPageInfo] fetching Talents page (typed talent)...");
     const talentsPage = await getPageWikitext("Talents");
     if (talentsPage) {
       const talentBlock = extractTalentBlock(talentsPage.wikitext, searchName);
@@ -435,11 +543,77 @@ export async function getPageInfo(title, searchQuery, kind) {
           };
         }
       }
+
+      const ulidTalent = extractUlidTalent(talentsPage.wikitext, searchName);
+      if (ulidTalent) {
+        return {
+          title: talentsPage.title,
+          infobox: {
+            name: ulidTalent.name,
+            tags: ulidTalent.tags,
+            description: ulidTalent.description
+          },
+          source: "talent-ulid",
+          redirect: null
+        };
+      }
     }
-    // Falls through below if not found — e.g. talent has its own
-    // standalone page, or wasn't matched on the Talents page.
   }
 
+  if (kind !== "talent") {
+    const talentsPage = await getPageWikitext("Talents");
+    if (talentsPage) {
+      const talentBlock = extractTalentBlock(talentsPage.wikitext, searchName);
+      if (talentBlock) {
+        const data = parseTalentBlock(talentBlock);
+        if (Object.keys(data).length > 0) {
+          return {
+            title: talentsPage.title,
+            infobox: data,
+            source: "talent-block-untyped",
+            redirect: null
+          };
+        }
+      }
+
+      const ulidTalent = extractUlidTalent(talentsPage.wikitext, searchName);
+      if (ulidTalent) {
+        return {
+          title: talentsPage.title,
+          infobox: {
+            name: ulidTalent.name,
+            tags: ulidTalent.tags,
+            description: ulidTalent.description
+          },
+          source: "talent-ulid-untyped",
+          redirect: null
+        };
+      }
+    }
+
+    // Untyped oath fallback — try "Oath: <query>"
+    if (!searchName.toLowerCase().startsWith("oath:")) {
+      const oathTitle = `Oath: ${searchName}`;
+      console.log("[getPageInfo] trying untyped oath fallback:", oathTitle);
+      const oathPage = await getPageWikitext(oathTitle);
+      if (oathPage) {
+        const block = extractOathBlock(oathPage.wikitext);
+        if (block) {
+          const data = parseInfoboxBlock(block);
+          if (Object.keys(data).length > 0) {
+            return {
+              title: oathPage.title,
+              infobox: data,
+              source: "oath-infobox-untyped",
+              redirect: oathPage.redirectTarget
+            };
+          }
+        }
+      }
+    }
+  }
+
+  console.log("[getPageInfo] fetching page:", title);
   const result = await getPageWikitext(title);
   if (!result) return null;
 
@@ -451,18 +625,12 @@ export async function getPageInfo(title, searchQuery, kind) {
   let source = "none";
 
   if (kind === "weapon") {
-    block = extractNamedInfobox(wikitext, ["Weapon_Infobox", "WeaponInfobox"]);
+    block = extractNamedInfobox(wikitext, [
+      "Weapon_Infobox",
+      "WeaponInfobox",
+      "Weapon Infobox"
+    ]);
     if (block) source = "weapon-infobox";
-  } else if (kind === "talent") {
-    block =
-      extractTalentBlock(wikitext, searchName) ||
-      extractNamedInfobox(wikitext, [
-        "Talent_Infobox",
-        "TalentInfobox",
-        "Talent_Card_Infobox",
-        "TalentCardInfobox"
-      ]);
-    if (block) source = "talent-fallback";
   } else if (kind === "mantra") {
     block = extractMantraBlock(wikitext, searchName);
     if (block) source = "mantra-block";
@@ -473,15 +641,26 @@ export async function getPageInfo(title, searchQuery, kind) {
     if (block) source = "mantra-block";
   }
   if (!block) {
+    block = extractNamedInfobox(wikitext, [
+      "Weapon_Infobox",
+      "WeaponInfobox",
+      "Weapon Infobox"
+    ]);
+    if (block) source = "weapon-infobox";
+  }
+  if (!block) {
+    block = extractOathBlock(wikitext);
+    if (block) source = "oath-infobox-any";
+  }
+  if (!block) {
     block = extractAnyInfobox(wikitext);
     if (block) source = "generic-infobox";
   }
 
+  console.log("[getPageInfo] page block source:", source);
+
   if (block) {
-    const data =
-      source === "talent-fallback" && /TalentInfo\/Talents/i.test(block)
-        ? parseTalentBlock(block)
-        : parseInfoboxBlock(block);
+    const data = parseInfoboxBlock(block);
     if (Object.keys(data).length > 0) {
       return {
         title: pageTitle,

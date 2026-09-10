@@ -2,6 +2,52 @@ import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 import { searchWiki, getPageInfo, getField } from "../utils/wikiApi.js";
 
 const EMBED_DESC_LIMIT = 4096;
+const EMBED_FIELD_LIMIT = 1024;
+
+const TITLE_OR_DESC_FIELDS = new Set([
+  "name",
+  "title",
+  "title1",
+  "description",
+  "effect",
+  "desc"
+]);
+const HIDDEN_FIELDS = new Set(["image", "icon", "image1"]);
+
+const FIELD_DISPLAY = [
+  { keys: ["oath_req", "oath req"], label: "📊 Oath Requirement", block: true },
+  { keys: ["effects"], label: "✨ Effects", block: true },
+  { keys: ["rarity"], label: "🌟 Rarity" },
+  { keys: ["category"], label: "🗂️ Category" },
+  { keys: ["type"], label: "⚔️ Type" },
+  { keys: ["ethercost"], label: "💧 Ether Cost" },
+  { keys: ["damage"], label: "💥 Damage" },
+  { keys: ["damage type", "dmgtype"], label: "🩸 Damage Type" },
+  { keys: ["posture damage"], label: "🛡️ Posture Damage" },
+  { keys: ["scaling"], label: "📈 Scaling" },
+  { keys: ["range"], label: "📏 Range" },
+  { keys: ["range type"], label: "📏 Range Type" },
+  { keys: ["swing speed"], label: "⚡ Swing Speed" },
+  { keys: ["attack duration"], label: "⏱️ Attack Duration" },
+  { keys: ["penetration"], label: "🗡️ Penetration" },
+  { keys: ["endlag"], label: "⏳ Endlag" },
+  { keys: ["stats"], label: "📈 Stats" },
+  { keys: ["condition"], label: "⚙️ Condition" },
+  { keys: ["reqs", "requirements"], label: "📊 Requirements" },
+  { keys: ["oath"], label: "🔰 Oath" },
+  { keys: ["selling price"], label: "💰 Selling Price" },
+  { keys: ["enchantable"], label: "✨ Enchantable" },
+  { keys: ["special effect"], label: "✨ Special Effect", block: true },
+  { keys: ["obtainment"], label: "🎯 Obtainment", block: true },
+  { keys: ["equipment"], label: "🛡️ Granted By Equipment", block: true },
+  { keys: ["tags"], label: "🏷️ Tags", block: true },
+  {
+    keys: ["mutual exclusives"],
+    label: "🚫 Mutually Exclusive With",
+    block: true
+  },
+  { keys: ["additional info"], label: "📝 Additional Info", block: true }
+];
 
 function formatFieldText(raw, limit = EMBED_DESC_LIMIT) {
   if (!raw) return null;
@@ -36,138 +82,74 @@ function formatFieldText(raw, limit = EMBED_DESC_LIMIT) {
   return text;
 }
 
-function formatEffectText(raw) {
-  return formatFieldText(raw) || "No description available.";
-}
+function inferAttunement(info, pageTitle) {
+  const attunement = getField(info, ["attunement", "element"]);
+  if (attunement) return attunement;
 
-/**
- * Picks a readable label out of a piped wiki template like
- * {{status|b=y|ncl=y|Daze|Dazed}} or {{cl|raretlnf|Speed Demon}} —
- * skips key=value flag args and returns the last plain segment.
- */
-function genericPipedLabel(inner) {
-  const parts = ("x|" + inner).split("|").map((p) => p.trim());
-  parts.shift();
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (parts[i] && !/^[a-z]+\s*=/i.test(parts[i])) {
-      return parts[i];
+  const reqs = getField(info, ["reqs", "requirements", "oath_req"]);
+  if (reqs) {
+    const match = reqs.match(
+      /\b(Thundercall|Flamecharm|Frostdraw|Galebreath|Shadowcast|Attunementless)\b/i
+    );
+    if (match) return match[1];
+  }
+
+  const titleLower = (pageTitle || "").toLowerCase();
+  const attunements = [
+    "thundercall",
+    "flamecharm",
+    "frostdraw",
+    "galebreath",
+    "shadowcast"
+  ];
+  for (const a of attunements) {
+    if (titleLower.includes(a)) {
+      return a.charAt(0).toUpperCase() + a.slice(1);
     }
   }
-  return parts[parts.length - 1] || "";
-}
-
-/**
- * Talent pages use a handful of wiki macros inside field values
- * (e.g. {{abf|prereq|[Strength]}}, {{t|Some Talent|r=rare}},
- * {{status|Burn}}, {{ttag|Fists}}, {{c|knowledge|10}}). This strips
- * those down to human-readable text. Only used on talent fields so it
- * can't affect mantra/weapon formatting.
- */
-function stripWikiMacros(raw) {
-  if (!raw) return raw;
-  let text = raw;
-
-  // {{sic|expected=...}} is just a wiki typo-flag annotation — drop it.
-  text = text.replace(/\{\{sic\|[^{}]*\}\}/gi, "");
-
-  // {{c|type|amount}} -> "amount type" e.g. {{c|knowledge|10}} -> "10 knowledge"
-  text = text.replace(
-    /\{\{c\|([^|{}]+)\|([^{}]+)\}\}/gi,
-    (_m, type, amount) => `${amount.trim()} ${type.trim()}`
-  );
-
-  // {{t|Talent Name|r=rare}} -> Talent Name
-  text = text.replace(/\{\{t\|([^|{}]+)[^{}]*\}\}/gi, "$1");
-
-  // {{status|...}} / {{cl|...}} -> best-guess readable label
-  text = text.replace(/\{\{(?:status|cl)\|([^{}]*)\}\}/gi, (_m, inner) =>
-    genericPipedLabel(inner)
-  );
-
-  // {{ttag|Fists}} -> [Fists]
-  text = text.replace(/\{\{ttag\|([^{}]+)\}\}/gi, "[$1]");
-
-  // {{abf|prereq|[Strength]}} / {{abf|[Tool]}} -> [Strength] / [Tool]
-  text = text.replace(/\{\{abf\|(?:[^|{}]*\|)?([^{}]*)\}\}/gi, "$1");
-
-  // {{ulid|...}} / {{ulid}} section markers -> drop entirely
-  text = text.replace(/\{\{ulid[^{}]*\}\}/gi, "");
-
-  // Any leftover {{...}} wrapper -> just its inner text (last resort)
-  text = text.replace(/\{\{([^{}]*)\}\}/g, "$1");
-
-  return text.replace(/[ \t]{2,}/g, " ").trim();
-}
-
-function formatTalentText(raw, limit = EMBED_DESC_LIMIT) {
-  return formatFieldText(stripWikiMacros(raw), limit);
+  return null;
 }
 
 export const data = new SlashCommandBuilder()
   .setName("wiki")
-  .setDescription("Query the Deepwoken Fandom Wiki")
-  .addSubcommand((sub) =>
-    sub
-      .setName("mantra")
-      .setDescription("Get details on a specific Mantra")
-      .addStringOption((opt) =>
-        opt.setName("name").setDescription("Mantra name").setRequired(true)
-      )
+  .setDescription("Look up anything on the Deepwoken Fandom Wiki")
+  .addStringOption((opt) =>
+    opt
+      .setName("name")
+      .setDescription("Name of the mantra, talent, weapon, oath, etc.")
+      .setRequired(true)
   )
-  .addSubcommand((sub) =>
-    sub
-      .setName("talent")
-      .setDescription("Get details on a specific Talent card")
-      .addStringOption((opt) =>
-        opt.setName("name").setDescription("Talent name").setRequired(true)
-      )
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("weapon")
-      .setDescription("Get details on a specific Weapon")
-      .addStringOption((opt) =>
-        opt.setName("name").setDescription("Weapon name").setRequired(true)
+  .addStringOption((opt) =>
+    opt
+      .setName("type")
+      .setDescription("Optional: narrow the search to a specific content type")
+      .setRequired(false)
+      .addChoices(
+        { name: "Mantra", value: "mantra" },
+        { name: "Weapon", value: "weapon" },
+        { name: "Talent", value: "talent" },
+        { name: "Oath", value: "oath" }
       )
   );
 
 export async function execute(interaction) {
   await interaction.deferReply();
 
-  const sub = interaction.options.getSubcommand();
   const query = interaction.options.getString("name");
+  const type = interaction.options.getString("type");
 
-  let pageInfo = null;
+  const ownPageTitle = await searchWiki(query);
 
-  if (sub === "talent") {
-    // Talents don't have their own pages — they're blocks on the shared
-    // "Talents" page. Look the name up directly instead of trusting
-    // MediaWiki's fuzzy search, which has nothing named e.g. "Brick Wall"
-    // to find and will happily return an unrelated page.
-    pageInfo = await getPageInfo(query, query, sub);
+  let pageInfo = await getPageInfo(ownPageTitle || query, query, type);
 
-    if (!pageInfo || Object.keys(pageInfo.infobox).length === 0) {
-      // Fallback: maybe it's a standalone-page talent, or needs
-      // disambiguating via normal search.
-      const searchedTitle = await searchWiki(query);
-      if (searchedTitle) {
-        pageInfo = await getPageInfo(searchedTitle, query, sub);
-      }
-    }
+  if (!pageInfo && type) {
+    pageInfo = await getPageInfo(ownPageTitle || query, query, null);
+  }
 
-    if (!pageInfo) {
-      return interaction.editReply(`❌ Failed to retrieve **${query}**.`);
-    }
-  } else {
-    const title = await searchWiki(query);
-    if (!title) {
-      return interaction.editReply(`❌ No page found for **${query}**.`);
-    }
-
-    pageInfo = await getPageInfo(title, query, sub);
-    if (!pageInfo) {
-      return interaction.editReply(`❌ Failed to retrieve **${title}**.`);
-    }
+  if (!pageInfo) {
+    return interaction.editReply(
+      `❌ No info found for **${query}**${type ? ` (type: ${type})` : ""}.`
+    );
   }
 
   const info = pageInfo.infobox;
@@ -175,10 +157,14 @@ export async function execute(interaction) {
     return interaction.editReply(`❌ No info found for **${query}**.`);
   }
 
-  const mantraName = getField(info, ["name"]);
+  return buildAndSendEmbed(interaction, pageInfo, info);
+}
+
+function buildAndSendEmbed(interaction, pageInfo, info) {
+  const itemName = getField(info, ["name", "title1", "title"]);
   const displayTitle = pageInfo.redirect
-    ? `${pageInfo.redirect} → ${mantraName || pageInfo.title}`
-    : mantraName || pageInfo.title;
+    ? `${pageInfo.redirect} → ${itemName || pageInfo.title}`
+    : itemName || pageInfo.title;
   const url = `https://deepwoken.fandom.com/wiki/${encodeURIComponent(
     pageInfo.title.replace(/ /g, "_")
   )}`;
@@ -187,230 +173,63 @@ export async function execute(interaction) {
     .setTitle(displayTitle)
     .setURL(url)
     .setColor(0x00aaff)
-    .setFooter({ text: `DeepIsCalling • Deepwoken Wiki` });
+    .setFooter({ text: "DepthCord • Deepwoken Wiki" });
 
-  if (sub === "mantra") {
-    const effect = getField(info, ["effect"]);
-    embed.setDescription(formatEffectText(effect));
+  const description = getField(info, ["description", "effect", "desc"]) || null;
+  embed.setDescription(
+    formatFieldText(description) || "No description available."
+  );
 
-    let attunement = getField(info, ["attunement", "element"]);
-    if (!attunement) {
-      const reqs = getField(info, ["reqs"]);
-      if (reqs) {
-        const match = reqs.match(
-          /\b(Thundercall|Flamecharm|Frostdraw|Galebreath|Shadowcast|Attunementless)\b/i
-        );
-        if (match) attunement = match[1];
-      }
-    }
-    if (!attunement) {
-      const pageTitleLower = pageInfo.title.toLowerCase();
-      const attunements = [
-        "thundercall",
-        "flamecharm",
-        "frostdraw",
-        "galebreath",
-        "shadowcast"
-      ];
-      for (const a of attunements) {
-        if (pageTitleLower.includes(a)) {
-          attunement = a.charAt(0).toUpperCase() + a.slice(1);
-          break;
-        }
-      }
-    }
-    if (attunement) {
-      embed.addFields({
-        name: "✨ Attunement",
-        value: attunement,
-        inline: true
-      });
-    }
+  const attunement = inferAttunement(info, pageInfo.title);
+  const usedKeys = new Set(["attunement", "element"]);
+  if (attunement) {
+    embed.addFields({ name: "✨ Attunement", value: attunement, inline: true });
+  }
 
-    const etherCost = getField(info, ["ethercost"]);
-    if (etherCost) {
-      embed.addFields({
-        name: "💧 Ether Cost",
-        value: etherCost,
-        inline: true
-      });
-    }
+  for (const spec of FIELD_DISPLAY) {
+    const value = getField(info, spec.keys);
+    if (!value) continue;
+    spec.keys.forEach((k) => usedKeys.add(k));
 
-    const reqs = getField(info, ["reqs"]);
-    if (reqs) {
-      embed.addFields({ name: "📊 Requirements", value: reqs, inline: true });
-    }
-  } else if (sub === "weapon") {
-    const description = getField(info, ["description"]);
-    embed.setDescription(formatEffectText(description));
+    const formatted = spec.block
+      ? formatFieldText(value, EMBED_FIELD_LIMIT)
+      : value;
+    if (!formatted) continue;
 
-    const type = getField(info, ["type"]);
-    if (type) {
-      embed.addFields({ name: "⚔️ Type", value: type, inline: true });
-    }
+    embed.addFields({
+      name: spec.label,
+      value:
+        formatted.length > EMBED_FIELD_LIMIT
+          ? formatted.slice(0, EMBED_FIELD_LIMIT - 1) + "…"
+          : formatted,
+      inline: !spec.block
+    });
+  }
 
-    const rarity = getField(info, ["rarity"]);
-    if (rarity) {
-      embed.addFields({ name: "🌟 Rarity", value: rarity, inline: true });
-    }
+  for (const key of Object.keys(info)) {
+    if (TITLE_OR_DESC_FIELDS.has(key)) continue;
+    if (HIDDEN_FIELDS.has(key)) continue;
+    if (usedKeys.has(key)) continue;
+    if (key.startsWith("_positional_")) continue;
 
-    const requirements = getField(info, ["requirements", "reqs"]);
-    if (requirements) {
-      embed.addFields({
-        name: "📊 Requirements",
-        value: requirements,
-        inline: true
-      });
-    }
+    const value = info[key];
+    if (!value) continue;
+    const formatted = formatFieldText(value, EMBED_FIELD_LIMIT);
+    if (!formatted) continue;
 
-    const damage = getField(info, ["damage"]);
-    const damageType = getField(info, ["damage type", "dmgtype"]);
-    if (damage) {
-      embed.addFields({
-        name: "💥 Damage",
-        value: damageType ? `${damage} (${damageType})` : damage,
-        inline: true
-      });
-    }
+    const label = key
+      .split(" ")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
 
-    const scaling = getField(info, ["scaling"]);
-    if (scaling) {
-      embed.addFields({ name: "📈 Scaling", value: scaling, inline: true });
-    }
-
-    const range = getField(info, ["range"]);
-    const rangeType = getField(info, ["range type"]);
-    if (range) {
-      embed.addFields({
-        name: "📏 Range",
-        value: rangeType ? `${range} (${rangeType})` : range,
-        inline: true
-      });
-    }
-
-    const specialEffect = getField(info, ["special effect"]);
-    if (specialEffect) {
-      const formatted = formatFieldText(specialEffect, 1024);
-      if (formatted) {
-        embed.addFields({
-          name: "✨ Special Effect",
-          value: formatted,
-          inline: false
-        });
-      }
-    }
-
-    const obtainment = getField(info, ["obtainment"]);
-    if (obtainment) {
-      const formatted = formatFieldText(obtainment, 1024);
-      if (formatted) {
-        embed.addFields({
-          name: "🎯 Obtainment",
-          value: formatted,
-          inline: false
-        });
-      }
-    }
-  } else if (sub === "talent") {
-    const description = getField(info, ["description"]);
-    embed.setDescription(
-      formatTalentText(description) || "No description available."
-    );
-
-    const rarity = getField(info, ["rarity"]);
-    if (rarity) {
-      embed.addFields({ name: "🌟 Rarity", value: rarity, inline: true });
-    }
-
-    const category = getField(info, ["category"]);
-    if (category && category.trim().toLowerCase() !== "unknown") {
-      embed.addFields({
-        name: "🗂️ Category",
-        value: category.trim(),
-        inline: true
-      });
-    }
-
-    const stats = getField(info, ["stats"]);
-    if (stats) {
-      embed.addFields({
-        name: "📈 Stats",
-        value: formatTalentText(stats, 1024) || stats,
-        inline: true
-      });
-    }
-
-    const condition = getField(info, ["condition"]);
-    if (condition) {
-      embed.addFields({
-        name: "⚙️ Condition",
-        value: formatTalentText(condition, 1024) || condition,
-        inline: true
-      });
-    }
-
-    const requirements = getField(info, ["requirements"]);
-    if (requirements) {
-      const formatted = formatTalentText(requirements, 1024);
-      if (formatted) {
-        embed.addFields({
-          name: "📊 Requirements",
-          value: formatted,
-          inline: false
-        });
-      }
-    }
-
-    const equipment = getField(info, ["equipment"]);
-    if (equipment) {
-      const formatted = formatTalentText(equipment, 1024);
-      if (formatted) {
-        embed.addFields({
-          name: "🛡️ Granted By Equipment",
-          value: formatted,
-          inline: false
-        });
-      }
-    }
-
-    const tags = getField(info, ["tags"]);
-    if (tags) {
-      const formatted = stripWikiMacros(tags).replace(/\s+/g, " ").trim();
-      if (formatted) {
-        embed.addFields({
-          name: "🏷️ Tags",
-          value:
-            formatted.length > 1024
-              ? formatted.slice(0, 1000) + "…"
-              : formatted,
-          inline: false
-        });
-      }
-    }
-
-    const mutualExclusives = getField(info, ["mutual exclusives"]);
-    if (mutualExclusives) {
-      const formatted = formatTalentText(mutualExclusives, 1024);
-      if (formatted) {
-        embed.addFields({
-          name: "🚫 Mutually Exclusive With",
-          value: formatted,
-          inline: false
-        });
-      }
-    }
-
-    const additionalInfo = getField(info, ["additional info"]);
-    if (additionalInfo) {
-      const formatted = formatTalentText(additionalInfo, 1024);
-      if (formatted) {
-        embed.addFields({
-          name: "📝 Additional Info",
-          value: formatted,
-          inline: false
-        });
-      }
-    }
+    embed.addFields({
+      name: `❔ ${label}`,
+      value:
+        formatted.length > EMBED_FIELD_LIMIT
+          ? formatted.slice(0, EMBED_FIELD_LIMIT - 1) + "…"
+          : formatted,
+      inline: false
+    });
   }
 
   return interaction.editReply({ embeds: [embed] });
