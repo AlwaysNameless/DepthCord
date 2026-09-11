@@ -17,7 +17,7 @@ export async function execute(interaction) {
         inline: true
       },
       {
-        name: "Developer & Quality Assurance",
+        name: "Tester (Idiot)",
         value: "**Hex**",
         inline: true
       },
