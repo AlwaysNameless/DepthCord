@@ -15,6 +15,8 @@ const TITLE_OR_DESC_FIELDS = new Set([
 const HIDDEN_FIELDS = new Set(["image", "icon", "image1"]);
 
 const FIELD_DISPLAY = [
+  { keys: ["droppable"], label: "📦 Droppable" },
+  { keys: ["pass down"], label: "🔁 Pass Down" },
   { keys: ["oath_req", "oath req"], label: "📊 Oath Requirement", block: true },
   { keys: ["effects"], label: "✨ Effects", block: true },
   { keys: ["rarity"], label: "🌟 Rarity" },
@@ -57,8 +59,11 @@ function formatFieldText(raw, limit = EMBED_DESC_LIMIT) {
 
   for (const line of lines) {
     if (!line) continue;
-    if (line.startsWith("*")) {
-      const content = line.slice(1).trim();
+    if (line.startsWith("*") || line.startsWith("#")) {
+      let content = line;
+      while (content.startsWith("*") || content.startsWith("#")) {
+        content = content.slice(1).trim();
+      }
       if (!content) continue;
       formatted.push(`- ${content}`);
     } else {
@@ -116,7 +121,7 @@ export const data = new SlashCommandBuilder()
   .addStringOption((opt) =>
     opt
       .setName("name")
-      .setDescription("Name of the mantra, talent, weapon, oath, etc.")
+      .setDescription("Name of the mantra, talent, weapon, oath, enchantment.")
       .setRequired(true)
   )
   .addStringOption((opt) =>
@@ -128,7 +133,8 @@ export const data = new SlashCommandBuilder()
         { name: "Mantra", value: "mantra" },
         { name: "Weapon", value: "weapon" },
         { name: "Talent", value: "talent" },
-        { name: "Oath", value: "oath" }
+        { name: "Oath", value: "oath" },
+        { name: "Enchantment", value: "enchant" }
       )
   );
 

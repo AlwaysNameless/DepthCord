@@ -218,6 +218,10 @@ function extractOathBlock(wikitext) {
   return extractNamedInfobox(wikitext, ["Oath"]);
 }
 
+function extractEnchantBlock(wikitext) {
+  return extractNamedInfobox(wikitext, ["Relic"]);
+}
+
 function extractAnyInfobox(wikitext) {
   const lines = wikitext.split("\n");
 
@@ -378,9 +382,34 @@ function splitTopLevelPipes(text) {
   return parts;
 }
 
-function cleanWikiValue(value) {
-  return value
-    .replace(/\{\{stats\|[^|]*\|([^{}]*)\}\}/gi, "$1")
+function cleanWikiValue(value, pageName = null) {
+  let result = value;
+
+  if (pageName) {
+    // Whole-line removal of PAGENAME patterns BEFORE the generic template
+    // strip, otherwise the leftovers become an orphan "Stone" line.
+    result = result
+      .split("\n")
+      .filter((line) => {
+        const stripped = line
+          .replace(/'''/g, "")
+          .replace(/''/g, "")
+          .replace(/\{\{PAGENAME\}\}/gi, "")
+          .replace(/\{\{text\|[^}]*\}\}/gi, "")
+          .replace(/[\[\]]/g, "")
+          .trim();
+        return stripped !== "";
+      })
+      .join("\n");
+  }
+
+  result = result.replace(/\{\{stats\|[^|]*\|([^{}]*)\}\}/gi, "$1");
+
+  if (pageName) {
+    result = result.replace(/\{\{PAGENAME\}\}/gi, pageName);
+  }
+
+  result = result
     .replace(/\{\{sic\|[^{}]*\}\}/gi, "")
     .replace(
       /\{\{c\|([^|{}]+)\|([^{}]+)\}\}/gi,
@@ -404,14 +433,25 @@ function cleanWikiValue(value) {
     .replace(/\{\{[^{}]*\}\}/g, "")
     .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, "$1")
     .replace(/<[^>]*>/g, "")
-    .replace(/''/g, "")
+    .replace(/'{2,}/g, "")
     .replace(/\n{2,}/g, "\n")
     .trim()
     .replace(/\}\}\s*$/, "")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
+
+  if (pageName) {
+    const lower = pageName.toLowerCase();
+    result = result
+      .split("\n")
+      .filter((line) => line.trim().toLowerCase() !== lower)
+      .join("\n");
+  }
+
+  return result;
 }
 
-function parseTalentBlock(block) {
+function parseTalentBlock(block, pageName = null) {
   let text = block.trim();
   text = text.replace(/^\{\{\s*TalentInfo\/Talents/i, "");
   text = text.replace(/\}\}\s*$/, "");
@@ -425,14 +465,14 @@ function parseTalentBlock(block) {
     if (eqIdx <= 0) continue;
     const key = part.slice(0, eqIdx).trim().toLowerCase();
     const rawValue = part.slice(eqIdx + 1).trim();
-    const value = cleanWikiValue(rawValue);
+    const value = cleanWikiValue(rawValue, pageName);
     if (value) data[key] = value;
   }
 
   return data;
 }
 
-function parseInfoboxBlock(block) {
+function parseInfoboxBlock(block, pageName = null) {
   const data = {};
   const innerLines = block.split("\n");
 
@@ -475,7 +515,7 @@ function parseInfoboxBlock(block) {
   }
 
   for (const key in data) {
-    data[key] = cleanWikiValue(data[key]);
+    data[key] = cleanWikiValue(data[key], pageName);
   }
   return data;
 }
@@ -499,28 +539,19 @@ export async function getPageInfo(title, searchQuery, kind) {
     kind
   );
 
-  if (kind === "oath") {
-    console.log("[getPageInfo] oath lookup:", searchName);
-    const oathCandidates = [];
-    if (!searchName.toLowerCase().startsWith("oath:")) {
-      oathCandidates.push(`Oath: ${searchName}`);
-    }
-    oathCandidates.push(searchName);
-    if (title && !oathCandidates.includes(title)) oathCandidates.push(title);
-
-    for (const candidateTitle of oathCandidates) {
-      console.log("[getPageInfo] trying oath page:", candidateTitle);
-      const oathPage = await getPageWikitext(candidateTitle);
-      if (!oathPage) continue;
-      const block = extractOathBlock(oathPage.wikitext);
+  if (kind === "enchant") {
+    console.log("[getPageInfo] enchant lookup:", searchName);
+    const result = await getPageWikitext(title);
+    if (result) {
+      const block = extractEnchantBlock(result.wikitext);
       if (block) {
-        const data = parseInfoboxBlock(block);
+        const data = parseInfoboxBlock(block, result.title);
         if (Object.keys(data).length > 0) {
           return {
-            title: oathPage.title,
+            title: result.title,
             infobox: data,
-            source: "oath-infobox",
-            redirect: oathPage.redirectTarget
+            source: "enchant-infobox",
+            redirect: result.redirectTarget
           };
         }
       }
@@ -591,7 +622,6 @@ export async function getPageInfo(title, searchQuery, kind) {
       }
     }
 
-    // Untyped oath fallback — try "Oath: <query>"
     if (!searchName.toLowerCase().startsWith("oath:")) {
       const oathTitle = `Oath: ${searchName}`;
       console.log("[getPageInfo] trying untyped oath fallback:", oathTitle);
@@ -599,7 +629,7 @@ export async function getPageInfo(title, searchQuery, kind) {
       if (oathPage) {
         const block = extractOathBlock(oathPage.wikitext);
         if (block) {
-          const data = parseInfoboxBlock(block);
+          const data = parseInfoboxBlock(block, oathPage.title);
           if (Object.keys(data).length > 0) {
             return {
               title: oathPage.title,
@@ -649,6 +679,10 @@ export async function getPageInfo(title, searchQuery, kind) {
     if (block) source = "weapon-infobox";
   }
   if (!block) {
+    block = extractEnchantBlock(wikitext);
+    if (block) source = "enchant-infobox-any";
+  }
+  if (!block) {
     block = extractOathBlock(wikitext);
     if (block) source = "oath-infobox-any";
   }
@@ -660,7 +694,9 @@ export async function getPageInfo(title, searchQuery, kind) {
   console.log("[getPageInfo] page block source:", source);
 
   if (block) {
-    const data = parseInfoboxBlock(block);
+    const data = /TalentInfo\/Talents/i.test(block)
+      ? parseTalentBlock(block, pageTitle)
+      : parseInfoboxBlock(block, pageTitle);
     if (Object.keys(data).length > 0) {
       return {
         title: pageTitle,
