@@ -1,6 +1,46 @@
 const BASE_URL = "https://deepwoken.fandom.com/api.php";
 
+const TEMPLATE_MAP = {
+  mantra: ["MantraInfobox"],
+  weapon: ["Weapon_Infobox", "WeaponInfobox", "Weapon Infobox"],
+  oath: ["Oath"],
+  enchant: ["Relic"],
+  equip: ["EquipInfobox"],
+  outfit: ["OutfitInfobox"],
+  npc: ["NPCInfobox"],
+  enemy: ["EnemyInfobox"],
+  monster: ["Monster Infobox"],
+  item: ["ItemTemplate"],
+  tool: ["ToolInfobox"],
+  location: ["Location"],
+  character: ["Character"],
+  faction: ["Factions"],
+  aspect: ["Aspect"],
+  basic: ["Basic Infobox"]
+};
+
 export async function searchWiki(query) {
+  const target = query.toLowerCase().trim();
+
+  const directParams = new URLSearchParams({
+    action: "query",
+    titles: query,
+    prop: "info",
+    inprop: "url",
+    format: "json",
+    origin: "*",
+    redirects: "1"
+  });
+  const directRes = await fetch(`${BASE_URL}?${directParams}`);
+  const directData = await directRes.json();
+  const directPages = directData.query?.pages || {};
+  const directPageId = Object.keys(directPages)[0];
+  if (directPageId && directPageId !== "-1") {
+    const title = directPages[directPageId].title;
+    console.log(`[searchWiki] exact page match: ${title}`);
+    return title;
+  }
+
   const params = new URLSearchParams({
     action: "query",
     list: "search",
@@ -13,24 +53,16 @@ export async function searchWiki(query) {
   if (!data.query?.search?.length) return null;
 
   const results = data.query.search;
-  const target = query.toLowerCase().trim();
-
   const exact = results.find((r) => r.title.toLowerCase().trim() === target);
   if (exact) return exact.title;
 
   const top = results[0];
   const topLower = top.title.toLowerCase();
-
   const queryWords = target.split(/\s+/).filter((w) => w.length > 2);
   const sharesWord = queryWords.some((w) => topLower.includes(w));
 
   console.log(
-    "[searchWiki] query:",
-    target,
-    "| top:",
-    top.title,
-    "| shares word:",
-    sharesWord
+    `[searchWiki] fuzzy: query="${target}" top="${top.title}" sharesWord=${sharesWord}`
   );
 
   if (sharesWord) return top.title;
@@ -56,12 +88,27 @@ export async function getPageWikitext(title) {
   if (pageId === "-1") return null;
   let page = pages[pageId];
 
-  if (page.redirect) {
-    const target = page.redirect[0].to;
+  let redirectTarget = null;
+
+  if (page.redirect && page.redirect[0]) {
+    redirectTarget = page.redirect[0].to;
+  } else {
+    const raw = page.revisions?.[0]?.slots?.main?.["*"];
+    if (raw) {
+      const m = raw.trim().match(/^#redirect\s*:?\s*\[\[([^\]]+)\]\]/i);
+      if (m) redirectTarget = m[1].trim();
+    }
+  }
+
+  if (redirectTarget) {
+    const cleanTarget = redirectTarget.split("#")[0].trim();
+    console.log(
+      `[getPageWikitext] following redirect: ${title} -> ${cleanTarget}`
+    );
     const targetParams = new URLSearchParams({
       action: "query",
       prop: "revisions",
-      titles: target,
+      titles: cleanTarget,
       rvprop: "content",
       rvslots: "main",
       format: "json",
@@ -74,11 +121,20 @@ export async function getPageWikitext(title) {
       const targetId = Object.keys(targetPages)[0];
       if (targetId !== "-1") {
         const targetPage = targetPages[targetId];
-        return {
-          title: targetPage.title,
-          wikitext: targetPage.revisions[0].slots.main["*"],
-          redirectTarget: target
-        };
+        const content = targetPage.revisions?.[0]?.slots?.main?.["*"];
+        if (content) {
+          const nested = content
+            .trim()
+            .match(/^#redirect\s*:?\s*\[\[([^\]]+)\]\]/i);
+          if (nested) {
+            return getPageWikitext(nested[1].trim().split("#")[0]);
+          }
+          return {
+            title: targetPage.title,
+            wikitext: content,
+            redirectTarget: cleanTarget
+          };
+        }
       }
     }
   }
@@ -153,6 +209,51 @@ function findBlockEndFromIndex(lines, startLineIdx, startCharIdx) {
   return blockEnd;
 }
 
+function splitTopLevelPipes(text) {
+  const parts = [];
+  let depthCurly = 0;
+  let depthBracket = 0;
+  let current = "";
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (ch === "{" && next === "{") {
+      depthCurly++;
+      current += "{{";
+      i++;
+      continue;
+    }
+    if (ch === "}" && next === "}") {
+      depthCurly = Math.max(0, depthCurly - 1);
+      current += "}}";
+      i++;
+      continue;
+    }
+    if (ch === "[" && next === "[") {
+      depthBracket++;
+      current += "[[";
+      i++;
+      continue;
+    }
+    if (ch === "]" && next === "]") {
+      depthBracket = Math.max(0, depthBracket - 1);
+      current += "]]";
+      i++;
+      continue;
+    }
+    if (ch === "|" && depthCurly === 0 && depthBracket === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.length) parts.push(current);
+  return parts;
+}
+
 function extractMantraBlock(wikitext, mantraName) {
   const lines = wikitext.split("\n");
   const target = mantraName.toLowerCase().trim();
@@ -214,12 +315,10 @@ function extractNamedInfobox(wikitext, templateNameFragments) {
   return null;
 }
 
-function extractOathBlock(wikitext) {
-  return extractNamedInfobox(wikitext, ["Oath"]);
-}
-
-function extractEnchantBlock(wikitext) {
-  return extractNamedInfobox(wikitext, ["Relic"]);
+function extractForKind(wikitext, kind) {
+  const templates = TEMPLATE_MAP[kind];
+  if (!templates) return null;
+  return extractNamedInfobox(wikitext, templates);
 }
 
 function extractAnyInfobox(wikitext) {
@@ -245,17 +344,52 @@ function extractAnyInfobox(wikitext) {
   return null;
 }
 
+function extractFirstProse(wikitext) {
+  const lines = wikitext.split("\n");
+  let collecting = false;
+  const parts = [];
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    if (/^=+\s*.+\s*=+$/.test(t)) {
+      if (collecting) break;
+      collecting = true;
+      continue;
+    }
+    if (!collecting) continue;
+    if (t.startsWith("{{")) continue;
+    if (t.startsWith("[[")) continue;
+    if (t.startsWith("<")) continue;
+    if (t.startsWith("|")) continue;
+    if (t.startsWith("*") || t.startsWith("#")) continue;
+    if (t.startsWith("__")) continue;
+    parts.push(t);
+    if (parts.length >= 3) break;
+  }
+
+  if (parts.length === 0) {
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) continue;
+      if (t.startsWith("{{")) continue;
+      if (t.startsWith("[[")) continue;
+      if (t.startsWith("<")) continue;
+      if (t.startsWith("|")) continue;
+      if (t.startsWith("''")) return t;
+    }
+  }
+
+  return parts.join(" ").slice(0, 500) || null;
+}
+
 function extractTalentBlock(wikitext, talentName) {
   const lines = wikitext.split("\n");
   const target = talentName.toLowerCase().trim();
-  console.log("[extractTalentBlock] looking for:", target);
-  console.log("[extractTalentBlock] total lines:", lines.length);
 
   const candidates = [];
-  let templateMatchCount = 0;
   for (let i = 0; i < lines.length; i++) {
     if (!/\{\{\s*TalentInfo\/Talents/i.test(lines[i])) continue;
-    templateMatchCount++;
 
     const blockEnd = findBlockEnd(lines, i);
     const block = lines.slice(i, blockEnd + 1).join("\n");
@@ -267,31 +401,19 @@ function extractTalentBlock(wikitext, talentName) {
     i = blockEnd;
   }
 
-  console.log("[extractTalentBlock] template matches:", templateMatchCount);
-  console.log("[extractTalentBlock] candidates with name:", candidates.length);
-
   let found = candidates.find((c) => c.blockName === target);
-  if (found) {
-    console.log("[extractTalentBlock] exact match found:", found.blockName);
-    return found.block;
-  }
+  if (found) return found.block;
 
   found = candidates.find(
     (c) => c.blockName.includes(target) || target.includes(c.blockName)
   );
-  if (found) {
-    console.log("[extractTalentBlock] substring match found:", found.blockName);
-    return found.block;
-  }
+  if (found) return found.block;
 
   console.log(
-    "[extractTalentBlock] NO MATCH. Closest names:",
-    candidates
-      .map((c) => c.blockName)
-      .filter(
-        (n) => n.includes(target.slice(0, 5)) || target.includes(n.slice(0, 5))
-      )
-      .slice(0, 10)
+    "[extractTalentBlock] NO MATCH for:",
+    target,
+    "| candidates:",
+    candidates.length
   );
   return null;
 }
@@ -299,7 +421,6 @@ function extractTalentBlock(wikitext, talentName) {
 function extractUlidTalent(wikitext, talentName) {
   const lines = wikitext.split("\n");
   const target = talentName.toLowerCase().trim();
-  console.log("[extractUlidTalent] looking for:", target);
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
@@ -307,24 +428,13 @@ function extractUlidTalent(wikitext, talentName) {
     if (!ulidMatch) continue;
     if (ulidMatch[1].trim().toLowerCase() !== target) continue;
 
-    console.log("[extractUlidTalent] found ulid marker at line", i);
-
     let j = i + 1;
     while (j < lines.length && !lines[j].trim()) j++;
-    if (j >= lines.length) {
-      console.log("[extractUlidTalent] no description line after marker");
-      return null;
-    }
+    if (j >= lines.length) return null;
 
     const descLine = lines[j].trim();
     const m = descLine.match(/^\*\s*([^[]+?)\s*\[([^\]]+)\]\s*-\s*(.+)$/);
-    if (!m) {
-      console.log(
-        "[extractUlidTalent] description line did not match pattern:",
-        descLine
-      );
-      return null;
-    }
+    if (!m) return null;
 
     return {
       name: cleanWikiValue(m[1].trim()),
@@ -332,62 +442,13 @@ function extractUlidTalent(wikitext, talentName) {
       description: cleanWikiValue(m[3].trim())
     };
   }
-
-  console.log("[extractUlidTalent] no ulid marker found");
   return null;
-}
-
-function splitTopLevelPipes(text) {
-  const parts = [];
-  let depthCurly = 0;
-  let depthBracket = 0;
-  let current = "";
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const next = text[i + 1];
-
-    if (ch === "{" && next === "{") {
-      depthCurly++;
-      current += "{{";
-      i++;
-      continue;
-    }
-    if (ch === "}" && next === "}") {
-      depthCurly = Math.max(0, depthCurly - 1);
-      current += "}}";
-      i++;
-      continue;
-    }
-    if (ch === "[" && next === "[") {
-      depthBracket++;
-      current += "[[";
-      i++;
-      continue;
-    }
-    if (ch === "]" && next === "]") {
-      depthBracket = Math.max(0, depthBracket - 1);
-      current += "]]";
-      i++;
-      continue;
-    }
-    if (ch === "|" && depthCurly === 0 && depthBracket === 0) {
-      parts.push(current);
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  if (current.length) parts.push(current);
-  return parts;
 }
 
 function cleanWikiValue(value, pageName = null) {
   let result = value;
 
   if (pageName) {
-    // Whole-line removal of PAGENAME patterns BEFORE the generic template
-    // strip, otherwise the leftovers become an orphan "Stone" line.
     result = result
       .split("\n")
       .filter((line) => {
@@ -403,11 +464,21 @@ function cleanWikiValue(value, pageName = null) {
       .join("\n");
   }
 
-  result = result.replace(/\{\{stats\|[^|]*\|([^{}]*)\}\}/gi, "$1");
-
   if (pageName) {
     result = result.replace(/\{\{PAGENAME\}\}/gi, pageName);
   }
+
+  result = result.replace(/\{\{stats\|([^|{}]*)\|([^|{}]*)[^{}]*\}\}/gi, "$2");
+
+  result = result.replace(/\{\{Set\|([^{}]*)\}\}/gi, (_m, inner) => {
+    const args = splitTopLevelPipes(inner)
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const items = args.filter((a) => !/^[a-z]+\s*=/i.test(a));
+    return items.join(" · ");
+  });
+
+  result = result.replace(/\{\{W\|[^{}]*\}\}/gi, "");
 
   result = result
     .replace(/\{\{sic\|[^{}]*\}\}/gi, "")
@@ -417,7 +488,7 @@ function cleanWikiValue(value, pageName = null) {
     )
     .replace(/\{\{t\|([^|{}]+)[^{}]*\}\}/gi, "$1")
     .replace(/\{\{(?:status|cl)\|([^{}]*)\}\}/gi, (_m, inner) => {
-      const parts = inner.split("|").map((p) => p.trim());
+      const parts = splitTopLevelPipes(inner).map((p) => p.trim());
       for (let i = parts.length - 1; i >= 0; i--) {
         if (parts[i] && !/^[a-z]+\s*=/i.test(parts[i])) return parts[i];
       }
@@ -425,6 +496,24 @@ function cleanWikiValue(value, pageName = null) {
     })
     .replace(/\{\{ttag\|([^{}]+)\}\}/gi, "[$1]")
     .replace(/\{\{abf\|(?:[^|{}]*\|)?([^{}]*)\}\}/gi, "$1")
+    .replace(/\{\{iv\|([^{}]*)\}\}/gi, "")
+    .replace(/\{\{input\|(?:[^|{}]*\|)?([^{}]*)\}\}/gi, "$1")
+    .replace(/\{\{FactionIcon\|([^{}]*)\}\}/gi, "")
+    .replace(/\{\{AttackTags?\|([^{}]*)\}\}/gi, "[$1]")
+    .replace(/\{\{g\|([^{}]*)\}\}/gi, "")
+    .replace(/\{\{etal\|([^{}]*)\}\}/gi, "")
+    .replace(/\{\{anch\|([^{}]*)\}\}/gi, "")
+    .replace(/\{\{lp\|([^{}]*)\}\}/gi, "")
+    .replace(/\{\{History\}\}/gi, "")
+    .replace(/\{\{VersionHistory\}\}/gi, "")
+    .replace(/\{\{Nav\|[^{}]*\}\}/gi, "")
+    .replace(/\{\{clear\}\}/gi, "")
+    .replace(/\{\{Clear\}\}/gi, "");
+
+  // Adjacent links [[A]][[B]] would otherwise become "AB" with no gap.
+  result = result.replace(/\]\]\s*\[\[/g, "]] · [[");
+
+  result = result
     .replace(/\[\[\s*(?:File|Image)\s*:[^\]]*\]\]/gi, "")
     .replace(
       /(?:^|\n)\s*(?:File|Image)\s*:[^\n]*(?:\.gif|\.png|\.jpg|\.jpeg|\.webp)[^\n]*/gi,
@@ -448,7 +537,68 @@ function cleanWikiValue(value, pageName = null) {
       .join("\n");
   }
 
+  // Punctuation-only values are noise; blank them so the caller skips.
+  if (/^[\s.\-–—…,;:]+$/.test(result)) {
+    return "";
+  }
+
   return result;
+}
+
+function parseImageLine(line) {
+  if (!line) return null;
+  let v = line.trim();
+  if (!v) return null;
+  v = v.replace(/^\[\[|\]\]$/g, "");
+  v = v.replace(/^(File|Image):/i, "");
+  v = v.split("|")[0].trim();
+  if (!v) return null;
+  if (!/\.(png|jpe?g|gif|webp|bmp)$/i.test(v)) return null;
+  return v;
+}
+
+function extractFirstImageFilename(block) {
+  const lines = block.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s*\|\s*image\d*\s*=\s*(.*)$/i);
+    if (!m) continue;
+
+    const value = m[1].trim();
+    if (!value) continue;
+
+    if (/<gallery/i.test(value)) {
+      const sameLine = value.match(/<gallery[^>]*>([^<]*)<\/gallery>/i);
+      if (sameLine) {
+        const name = parseImageLine(sameLine[1].split("\n")[0]);
+        if (name) return name;
+      }
+      for (let j = i + 1; j < lines.length; j++) {
+        const t = lines[j].trim();
+        if (/<\/gallery>/i.test(t)) break;
+        if (!t) continue;
+        if (/^<gallery/i.test(t)) continue;
+        const name = parseImageLine(t);
+        if (name) return name;
+      }
+      return null;
+    }
+
+    const name = parseImageLine(value);
+    if (name) return name;
+  }
+  return null;
+}
+
+function resolveImageUrl(block) {
+  const filename = extractFirstImageFilename(block);
+  if (!filename) {
+    console.log("[resolveImageUrl] no image filename found in block");
+    return null;
+  }
+  const url = `https://deepwoken.fandom.com/wiki/Special:FilePath/${encodeURIComponent(filename)}`;
+  console.log(`[resolveImageUrl] using ${filename}`);
+  return url;
 }
 
 function parseTalentBlock(block, pageName = null) {
@@ -517,6 +667,7 @@ function parseInfoboxBlock(block, pageName = null) {
   for (const key in data) {
     data[key] = cleanWikiValue(data[key], pageName);
   }
+
   return data;
 }
 
@@ -530,36 +681,8 @@ export function getField(data, aliases) {
 
 export async function getPageInfo(title, searchQuery, kind) {
   const searchName = searchQuery || title;
-  console.log(
-    "[getPageInfo] title:",
-    title,
-    "| searchQuery:",
-    searchQuery,
-    "| kind:",
-    kind
-  );
-
-  if (kind === "enchant") {
-    console.log("[getPageInfo] enchant lookup:", searchName);
-    const result = await getPageWikitext(title);
-    if (result) {
-      const block = extractEnchantBlock(result.wikitext);
-      if (block) {
-        const data = parseInfoboxBlock(block, result.title);
-        if (Object.keys(data).length > 0) {
-          return {
-            title: result.title,
-            infobox: data,
-            source: "enchant-infobox",
-            redirect: result.redirectTarget
-          };
-        }
-      }
-    }
-  }
 
   if (kind === "talent") {
-    console.log("[getPageInfo] fetching Talents page (typed talent)...");
     const talentsPage = await getPageWikitext("Talents");
     if (talentsPage) {
       const talentBlock = extractTalentBlock(talentsPage.wikitext, searchName);
@@ -624,13 +747,20 @@ export async function getPageInfo(title, searchQuery, kind) {
 
     if (!searchName.toLowerCase().startsWith("oath:")) {
       const oathTitle = `Oath: ${searchName}`;
-      console.log("[getPageInfo] trying untyped oath fallback:", oathTitle);
       const oathPage = await getPageWikitext(oathTitle);
       if (oathPage) {
-        const block = extractOathBlock(oathPage.wikitext);
+        const block = extractForKind(oathPage.wikitext, "oath");
         if (block) {
           const data = parseInfoboxBlock(block, oathPage.title);
           if (Object.keys(data).length > 0) {
+            if (!data.description && !data.effect && !data.desc) {
+              const prose = extractFirstProse(oathPage.wikitext);
+              if (prose) {
+                data.description = cleanWikiValue(prose, oathPage.title);
+              }
+            }
+            const imageUrl = resolveImageUrl(block);
+            if (imageUrl) data.__image_url = imageUrl;
             return {
               title: oathPage.title,
               infobox: data,
@@ -643,7 +773,6 @@ export async function getPageInfo(title, searchQuery, kind) {
     }
   }
 
-  console.log("[getPageInfo] fetching page:", title);
   const result = await getPageWikitext(title);
   if (!result) return null;
 
@@ -654,50 +783,48 @@ export async function getPageInfo(title, searchQuery, kind) {
   let block = null;
   let source = "none";
 
-  if (kind === "weapon") {
-    block = extractNamedInfobox(wikitext, [
-      "Weapon_Infobox",
-      "WeaponInfobox",
-      "Weapon Infobox"
-    ]);
-    if (block) source = "weapon-infobox";
-  } else if (kind === "mantra") {
+  if (kind === "mantra" || !kind) {
     block = extractMantraBlock(wikitext, searchName);
     if (block) source = "mantra-block";
   }
 
-  if (!block) {
-    block = extractMantraBlock(wikitext, searchName);
-    if (block) source = "mantra-block";
+  if (!block && kind && TEMPLATE_MAP[kind]) {
+    block = extractForKind(wikitext, kind);
+    if (block) source = `${kind}-infobox`;
   }
+
   if (!block) {
-    block = extractNamedInfobox(wikitext, [
-      "Weapon_Infobox",
-      "WeaponInfobox",
-      "Weapon Infobox"
-    ]);
-    if (block) source = "weapon-infobox";
+    for (const k of Object.keys(TEMPLATE_MAP)) {
+      if (k === kind) continue;
+      block = extractForKind(wikitext, k);
+      if (block) {
+        source = `${k}-infobox-any`;
+        break;
+      }
+    }
   }
-  if (!block) {
-    block = extractEnchantBlock(wikitext);
-    if (block) source = "enchant-infobox-any";
-  }
-  if (!block) {
-    block = extractOathBlock(wikitext);
-    if (block) source = "oath-infobox-any";
-  }
+
   if (!block) {
     block = extractAnyInfobox(wikitext);
     if (block) source = "generic-infobox";
   }
 
-  console.log("[getPageInfo] page block source:", source);
-
   if (block) {
     const data = /TalentInfo\/Talents/i.test(block)
       ? parseTalentBlock(block, pageTitle)
       : parseInfoboxBlock(block, pageTitle);
+
     if (Object.keys(data).length > 0) {
+      if (!data.description && !data.effect && !data.desc) {
+        const prose = extractFirstProse(wikitext);
+        if (prose) {
+          data.description = cleanWikiValue(prose, pageTitle);
+        }
+      }
+
+      const imageUrl = resolveImageUrl(block);
+      if (imageUrl) data.__image_url = imageUrl;
+
       return {
         title: pageTitle,
         infobox: data,
@@ -705,6 +832,19 @@ export async function getPageInfo(title, searchQuery, kind) {
         redirect: redirectTarget
       };
     }
+  }
+
+  const prose = extractFirstProse(wikitext);
+  if (prose) {
+    return {
+      title: pageTitle,
+      infobox: {
+        name: pageTitle,
+        description: cleanWikiValue(prose, pageTitle)
+      },
+      source: "prose-fallback",
+      redirect: redirectTarget
+    };
   }
 
   return {
