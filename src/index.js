@@ -9,7 +9,19 @@ import { startScheduler } from "./utils/scheduler.js";
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+});
+
+client.on("messageCreate", (message) => {
+  if (message.author.bot) return;
+  if (message.content) return;
+  message.reply("pong");
+});
 client.commands = new Collection();
 
 const commandsPath = path.join(__dirname, "commands");
@@ -24,7 +36,7 @@ if (fs.existsSync(commandsPath)) {
       client.commands.set(cmd.data.name, cmd);
     } else {
       console.warn(
-        `[WARNING] Command at ${filePath} missing required "data" or "execute".`
+        `[WARNING] Command at ${filePath} missing required "data" or "execute".`,
       );
     }
   }
@@ -40,7 +52,7 @@ client.on("interactionCreate", async (interaction) => {
         } catch (error) {
           console.error(
             `Autocomplete error for ${interaction.commandName}:`,
-            error
+            error,
           );
         }
       }
@@ -57,7 +69,7 @@ client.on("interactionCreate", async (interaction) => {
           if (!interaction.replied) {
             await interaction.reply({
               content: "There was an error processing this button.",
-              flags: 64
+              flags: 64,
             });
           }
         }
@@ -74,7 +86,7 @@ client.on("interactionCreate", async (interaction) => {
       if (!command) {
         return interaction.reply({
           content: "❌ Command not found.",
-          flags: 64
+          flags: 64,
         });
       }
 
