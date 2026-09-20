@@ -19,7 +19,7 @@ const client = new Client({
 
 client.on("messageCreate", (message) => {
   if (message.author.bot) return;
-  if (message.content) return;
+  if (message.content !== "!ping") return;
   message.reply("pong");
 });
 client.commands = new Collection();
