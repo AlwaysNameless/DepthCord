@@ -11,6 +11,10 @@ yarn.lock
 .env.*
 !.env.example
 
+.venv
+.venv.*
+!.venv.example
+
 # Database
 data/*.db
 data/*.db-*

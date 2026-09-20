@@ -17,11 +17,6 @@ const client = new Client({
   ],
 });
 
-client.on("messageCreate", (message) => {
-  if (message.author.bot) return;
-  if (message.content !== "!ping") return;
-  message.reply("pong");
-});
 client.commands = new Collection();
 
 const commandsPath = path.join(__dirname, "commands");
@@ -107,6 +102,12 @@ client.on("interactionCreate", async (interaction) => {
   } catch (err) {
     console.error("Unhandled interaction error:", err);
   }
+});
+
+client.on("messageCreate", (message) => {
+  if (message.author.bot) return;
+  if (message.content !== "!ping") return;
+  message.reply("pong");
 });
 
 client.once("ready", (c) => {
