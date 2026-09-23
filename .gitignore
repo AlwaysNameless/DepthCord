@@ -1,5 +1,5 @@
 # Node
-.node_modules/
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -21,6 +21,9 @@ data/*.db-*
 *.sqlite
 *.sqlite3
 
+# Wiki dump
+wiki_dump/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -36,4 +39,3 @@ dist/
 build/
 logs/
 *.log.env
-package-lock.json
