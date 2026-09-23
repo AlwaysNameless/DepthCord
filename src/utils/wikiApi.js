@@ -16,7 +16,7 @@ const TEMPLATE_MAP = {
   character: ["Character"],
   faction: ["Factions"],
   aspect: ["Aspect"],
-  basic: ["Basic Infobox"]
+  basic: ["Basic Infobox"],
 };
 
 export async function searchWiki(query) {
@@ -29,16 +29,14 @@ export async function searchWiki(query) {
     inprop: "url",
     format: "json",
     origin: "*",
-    redirects: "1"
+    redirects: "1",
   });
   const directRes = await fetch(`${BASE_URL}?${directParams}`);
   const directData = await directRes.json();
   const directPages = directData.query?.pages || {};
   const directPageId = Object.keys(directPages)[0];
   if (directPageId && directPageId !== "-1") {
-    const title = directPages[directPageId].title;
-    console.log(`[searchWiki] exact page match: ${title}`);
-    return title;
+    return directPages[directPageId].title;
   }
 
   const params = new URLSearchParams({
@@ -46,7 +44,7 @@ export async function searchWiki(query) {
     list: "search",
     srsearch: query,
     format: "json",
-    origin: "*"
+    origin: "*",
   });
   const res = await fetch(`${BASE_URL}?${params}`);
   const data = await res.json();
@@ -61,10 +59,6 @@ export async function searchWiki(query) {
   const queryWords = target.split(/\s+/).filter((w) => w.length > 2);
   const sharesWord = queryWords.some((w) => topLower.includes(w));
 
-  console.log(
-    `[searchWiki] fuzzy: query="${target}" top="${top.title}" sharesWord=${sharesWord}`
-  );
-
   if (sharesWord) return top.title;
   return null;
 }
@@ -78,7 +72,7 @@ export async function getPageWikitext(title) {
     rvslots: "main",
     inprop: "redirect",
     format: "json",
-    origin: "*"
+    origin: "*",
   });
   const res = await fetch(`${BASE_URL}?${params}`);
   const data = await res.json();
@@ -102,9 +96,7 @@ export async function getPageWikitext(title) {
 
   if (redirectTarget) {
     const cleanTarget = redirectTarget.split("#")[0].trim();
-    console.log(
-      `[getPageWikitext] following redirect: ${title} -> ${cleanTarget}`
-    );
+    console.log(`[getPageWikitext] redirect: ${title} -> ${cleanTarget}`);
     const targetParams = new URLSearchParams({
       action: "query",
       prop: "revisions",
@@ -112,7 +104,7 @@ export async function getPageWikitext(title) {
       rvprop: "content",
       rvslots: "main",
       format: "json",
-      origin: "*"
+      origin: "*",
     });
     const targetRes = await fetch(`${BASE_URL}?${targetParams}`);
     const targetData = await targetRes.json();
@@ -132,7 +124,7 @@ export async function getPageWikitext(title) {
           return {
             title: targetPage.title,
             wikitext: content,
-            redirectTarget: cleanTarget
+            redirectTarget: cleanTarget,
           };
         }
       }
@@ -143,7 +135,7 @@ export async function getPageWikitext(title) {
   return {
     title: page.title,
     wikitext: page.revisions[0].slots.main["*"],
-    redirectTarget: null
+    redirectTarget: null,
   };
 }
 
@@ -405,17 +397,9 @@ function extractTalentBlock(wikitext, talentName) {
   if (found) return found.block;
 
   found = candidates.find(
-    (c) => c.blockName.includes(target) || target.includes(c.blockName)
+    (c) => c.blockName.includes(target) || target.includes(c.blockName),
   );
-  if (found) return found.block;
-
-  console.log(
-    "[extractTalentBlock] NO MATCH for:",
-    target,
-    "| candidates:",
-    candidates.length
-  );
-  return null;
+  return found ? found.block : null;
 }
 
 function extractUlidTalent(wikitext, talentName) {
@@ -439,7 +423,7 @@ function extractUlidTalent(wikitext, talentName) {
     return {
       name: cleanWikiValue(m[1].trim()),
       tags: cleanWikiValue(m[2].trim()),
-      description: cleanWikiValue(m[3].trim())
+      description: cleanWikiValue(m[3].trim()),
     };
   }
   return null;
@@ -484,7 +468,7 @@ function cleanWikiValue(value, pageName = null) {
     .replace(/\{\{sic\|[^{}]*\}\}/gi, "")
     .replace(
       /\{\{c\|([^|{}]+)\|([^{}]+)\}\}/gi,
-      (_m, type, amount) => `${amount.trim()} ${type.trim()}`
+      (_m, type, amount) => `${amount.trim()} ${type.trim()}`,
     )
     .replace(/\{\{t\|([^|{}]+)[^{}]*\}\}/gi, "$1")
     .replace(/\{\{(?:status|cl)\|([^{}]*)\}\}/gi, (_m, inner) => {
@@ -517,7 +501,7 @@ function cleanWikiValue(value, pageName = null) {
     .replace(/\[\[\s*(?:File|Image)\s*:[^\]]*\]\]/gi, "")
     .replace(
       /(?:^|\n)\s*(?:File|Image)\s*:[^\n]*(?:\.gif|\.png|\.jpg|\.jpeg|\.webp)[^\n]*/gi,
-      ""
+      "",
     )
     .replace(/\{\{[^{}]*\}\}/g, "")
     .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, "$1")
@@ -537,7 +521,6 @@ function cleanWikiValue(value, pageName = null) {
       .join("\n");
   }
 
-  // Punctuation-only values are noise; blank them so the caller skips.
   if (/^[\s.\-–—…,;:]+$/.test(result)) {
     return "";
   }
@@ -592,13 +575,8 @@ function extractFirstImageFilename(block) {
 
 function resolveImageUrl(block) {
   const filename = extractFirstImageFilename(block);
-  if (!filename) {
-    console.log("[resolveImageUrl] no image filename found in block");
-    return null;
-  }
-  const url = `https://deepwoken.fandom.com/wiki/Special:FilePath/${encodeURIComponent(filename)}`;
-  console.log(`[resolveImageUrl] using ${filename}`);
-  return url;
+  if (!filename) return null;
+  return `https://deepwoken.fandom.com/wiki/Special:FilePath/${encodeURIComponent(filename)}`;
 }
 
 function parseTalentBlock(block, pageName = null) {
@@ -693,7 +671,7 @@ export async function getPageInfo(title, searchQuery, kind) {
             title: talentsPage.title,
             infobox: data,
             source: "talent-block",
-            redirect: null
+            redirect: null,
           };
         }
       }
@@ -705,10 +683,10 @@ export async function getPageInfo(title, searchQuery, kind) {
           infobox: {
             name: ulidTalent.name,
             tags: ulidTalent.tags,
-            description: ulidTalent.description
+            description: ulidTalent.description,
           },
           source: "talent-ulid",
-          redirect: null
+          redirect: null,
         };
       }
     }
@@ -725,7 +703,7 @@ export async function getPageInfo(title, searchQuery, kind) {
             title: talentsPage.title,
             infobox: data,
             source: "talent-block-untyped",
-            redirect: null
+            redirect: null,
           };
         }
       }
@@ -737,10 +715,10 @@ export async function getPageInfo(title, searchQuery, kind) {
           infobox: {
             name: ulidTalent.name,
             tags: ulidTalent.tags,
-            description: ulidTalent.description
+            description: ulidTalent.description,
           },
           source: "talent-ulid-untyped",
-          redirect: null
+          redirect: null,
         };
       }
     }
@@ -765,7 +743,7 @@ export async function getPageInfo(title, searchQuery, kind) {
               title: oathPage.title,
               infobox: data,
               source: "oath-infobox-untyped",
-              redirect: oathPage.redirectTarget
+              redirect: oathPage.redirectTarget,
             };
           }
         }
@@ -829,7 +807,7 @@ export async function getPageInfo(title, searchQuery, kind) {
         title: pageTitle,
         infobox: data,
         source,
-        redirect: redirectTarget
+        redirect: redirectTarget,
       };
     }
   }
@@ -840,10 +818,10 @@ export async function getPageInfo(title, searchQuery, kind) {
       title: pageTitle,
       infobox: {
         name: pageTitle,
-        description: cleanWikiValue(prose, pageTitle)
+        description: cleanWikiValue(prose, pageTitle),
       },
       source: "prose-fallback",
-      redirect: redirectTarget
+      redirect: redirectTarget,
     };
   }
 
@@ -851,6 +829,6 @@ export async function getPageInfo(title, searchQuery, kind) {
     title: pageTitle,
     infobox: {},
     source: "none",
-    redirect: redirectTarget
+    redirect: redirectTarget,
   };
 }

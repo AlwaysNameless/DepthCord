@@ -1,17 +1,22 @@
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../../data/deepiscalling.db");
-const schemaPath = path.resolve(__dirname, "./schema.sql");
+export const data = new SlashCommandBuilder()
+  .setName("info")
+  .setDescription("Show all available commands");
 
-const db = new Database(dbPath);
+export async function execute(i) {
+  let list = "";
 
-db.pragma("journal_mode = WAL");
+  for (const [name, cmd] of i.client.commands) {
+    list += `**/${name}** – ${cmd.data?.description || "No description"}\n`;
+  }
 
-const schema = fs.readFileSync(schemaPath, "utf-8");
-db.exec(schema);
+  const embed = new EmbedBuilder()
+    .setTitle("⚡ DepthCord – Commands")
+    .setColor(0x8b5cf6)
+    .setDescription(list || "No commands found.")
+    .setFooter({ text: "DepthCord • By Nameless" })
+    .setTimestamp();
 
-export default db;
+  await i.reply({ embeds: [embed] });
+}

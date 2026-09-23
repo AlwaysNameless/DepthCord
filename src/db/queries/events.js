@@ -7,49 +7,39 @@ export function createEvent({
   startTime,
   timeRaw,
   discordEventId,
-  roster
+  roster,
 }) {
-  const stmt = db.prepare(`
-    INSERT INTO events (event_id, title, event_type, scheduled_start, time_raw, discord_event_id, roster_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  return stmt.run(
-    id,
-    title,
-    type,
-    startTime,
-    timeRaw,
-    discordEventId,
-    JSON.stringify(roster)
-  );
+  return db
+    .prepare(
+      `INSERT INTO events (event_id, title, event_type, scheduled_start, time_raw, discord_event_id, roster_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      title,
+      type,
+      startTime,
+      timeRaw,
+      discordEventId,
+      JSON.stringify(roster),
+    );
 }
 
-export function getEvent(eventId) {
-  const stmt = db.prepare(`SELECT * FROM events WHERE event_id = ?`);
-  const row = stmt.get(eventId);
-
-  if (!row) return null;
-
-  return {
-    ...row,
-    roster: JSON.parse(row.roster_json)
-  };
+export function getEvent(id) {
+  const row = db.prepare("SELECT * FROM events WHERE event_id = ?").get(id);
+  return row ? { ...row, roster: JSON.parse(row.roster_json) } : null;
 }
 
 export function listEvents() {
-  const stmt = db.prepare(`SELECT * FROM events ORDER BY scheduled_start ASC`);
-  return stmt.all();
+  return db.prepare("SELECT * FROM events ORDER BY scheduled_start ASC").all();
 }
 
-export function updateRoster(eventId, roster) {
-  const stmt = db.prepare(
-    `UPDATE events SET roster_json = ? WHERE event_id = ?`
-  );
-  return stmt.run(JSON.stringify(roster), eventId);
+export function updateRoster(id, roster) {
+  return db
+    .prepare("UPDATE events SET roster_json = ? WHERE event_id = ?")
+    .run(JSON.stringify(roster), id);
 }
 
-export function deleteEvent(eventId) {
-  const stmt = db.prepare(`DELETE FROM events WHERE event_id = ?`);
-  return stmt.run(eventId);
+export function deleteEvent(id) {
+  return db.prepare("DELETE FROM events WHERE event_id = ?").run(id);
 }

@@ -1,20 +1,20 @@
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 import { searchWiki, getPageInfo, getField } from "../utils/wikiApi.js";
 
-const EMBED_DESC_LIMIT = 4096;
-const EMBED_FIELD_LIMIT = 1024;
+const DESC_MAX = 4096;
+const FIELD_MAX = 1024;
 
-const TITLE_OR_DESC_FIELDS = new Set([
+const TITLE_KEYS = new Set([
   "name",
   "npcname",
   "title",
   "title1",
   "description",
   "effect",
-  "desc"
+  "desc",
 ]);
 
-const HIDDEN_FIELDS = new Set([
+const HIDDEN = new Set([
   "image",
   "image1",
   "image2",
@@ -27,328 +27,263 @@ const HIDDEN_FIELDS = new Set([
   "passable",
   "fishingquote",
   "m.equip",
-  "m equip"
+  "m equip",
 ]);
 
-const FIELD_DISPLAY = [
-  // ── Common meta ────────────────────────────────────────────
-  { keys: ["rarity"], label: "🌟 Rarity" },
-  { keys: ["category"], label: "🗂️ Category" },
-  { keys: ["type"], label: "⚔️ Type" },
-  { keys: ["tier"], label: "🏆 Tier" },
-
-  // ── Weapons ────────────────────────────────────────────────
-  { keys: ["damage"], label: "💥 Damage" },
-  { keys: ["damage type", "dmgtype"], label: "🩸 Damage Type" },
-  { keys: ["posture damage"], label: "🛡️ Posture Damage" },
-  { keys: ["scaling"], label: "📈 Scaling" },
-  { keys: ["range"], label: "📏 Range" },
-  { keys: ["range type"], label: "📏 Range Type" },
-  { keys: ["swing speed"], label: "⚡ Swing Speed" },
-  { keys: ["attack duration"], label: "⏱️ Attack Duration" },
-  { keys: ["penetration"], label: "🗡️ Penetration" },
-  { keys: ["endlag"], label: "⏳ Endlag" },
-  { keys: ["enchantable"], label: "✨ Enchantable" },
-
-  // ── Mantras ────────────────────────────────────────────────
-  { keys: ["ethercost", "ether cost"], label: "💧 Ether Cost" },
-  { keys: ["cooldown"], label: "⏱️ Cooldown" },
-
-  // ── Enchantments / Oaths ───────────────────────────────────
-  { keys: ["droppable"], label: "📦 Droppable" },
-  { keys: ["pass down"], label: "🔁 Pass Down" },
-  { keys: ["oath_req", "oath req"], label: "📊 Oath Requirement", block: true },
-  { keys: ["effects"], label: "✨ Effects", block: true },
-
-  // ── Equipment (EquipInfobox) ───────────────────────────────
-  { keys: ["requirements"], label: "📊 Requirements" },
-  {
-    keys: ["innate stats", "innate_stats"],
-    label: "📈 Innate Stats",
-    block: true
-  },
-  { keys: ["innate talent", "innate tlent"], label: "🎯 Innate Talent" },
-  { keys: ["set"], label: "👕 Set" },
-  { keys: ["set name"], label: "🏷️ Set Name" },
-  { keys: ["set talent"], label: "⚡ Set Talent" },
-  { keys: ["styles"], label: "🎨 Styles" },
-  { keys: ["weight"], label: "⚖️ Weight" },
-  { keys: ["faction"], label: "🏛️ Faction" },
-
-  // ── Outfit (OutfitInfobox) ─────────────────────────────────
-  { keys: ["durability"], label: "🔧 Durability" },
-  { keys: ["resistances"], label: "🛡️ Resistances", block: true },
-  { keys: ["buffs"], label: "✨ Buffs", block: true },
-  { keys: ["talents"], label: "🎯 Talents", block: true },
-  { keys: ["stat_req", "stat req", "stat_req"], label: "📊 Stat Requirement" },
-  { keys: ["crafting req", "crafting_req"], label: "🔨 Crafting", block: true },
-  { keys: ["shirt", "shirt2", "pants"], label: "👕 Slots", block: true },
-  {
-    keys: ["price", "selling price", "selling_price", "sell"],
-    label: "💰 Price"
-  },
-
-  // ── NPC / Character (shared fields) ────────────────────────
-  { keys: ["affiliation"], label: "🏛️ Affiliation" },
-  { keys: ["alias"], label: "📛 Alias" },
-  { keys: ["aspect"], label: "✨ Aspect" },
-  { keys: ["species"], label: "🧬 Species" },
-  { keys: ["pronouns"], label: "👤 Pronouns" },
-  { keys: ["family"], label: "👪 Family" },
-  { keys: ["purpose"], label: "🎯 Purpose", block: true },
-  { keys: ["location", "located"], label: "📍 Location", block: true },
-
-  // ── NPC death info ─────────────────────────────────────────
-  { keys: ["death"], label: "☠️ Death", block: true },
-  { keys: ["deathdate"], label: "📅 Death Date" },
-
-  // ── Enemy / Monster ────────────────────────────────────────
-  { keys: ["health"], label: "❤️ Health" },
-  { keys: ["weapon"], label: "🗡️ Weapon" },
-  { keys: ["moves"], label: "⚔️ Moves", block: true },
-  { keys: ["attacks"], label: "⚔️ Attacks", block: true },
-  { keys: ["tacks"], label: "⚔️ Attacks", block: true },
-  { keys: ["behavior"], label: "🧠 Behavior", block: true },
-  { keys: ["challenges"], label: "🏆 Challenges", block: true },
-  { keys: ["drops"], label: "💧 Drops", block: true },
-  { keys: ["locations"], label: "🗺️ Locations", block: true },
-  {
-    keys: ["spawn_location", "spawn location"],
-    label: "🗺️ Spawn Location",
-    block: true
-  },
-
-  // ── Item (ItemTemplate) ────────────────────────────────────
-  { keys: ["buff"], label: "✨ Buff", block: true },
-  { keys: ["buff strength", "buffstrength"], label: "💪 Buff Strength" },
-  { keys: ["value"], label: "💰 Value" },
-  { keys: ["stack"], label: "📚 Stack Size" },
-  { keys: ["usage"], label: "🛠️ Usage", block: true },
-  { keys: ["stomach"], label: "🍖 Stomach" },
-  { keys: ["food type"], label: "🍽️ Food Type" },
-  { keys: ["habitat"], label: "🌿 Habitat" },
-  { keys: ["water"], label: "💧 Water" },
-  { keys: ["recipe"], label: "📜 Recipe", block: true },
-
-  // ── Location ───────────────────────────────────────────────
-  { keys: ["area"], label: "🗺️ Area" },
-
-  // ── Faction ────────────────────────────────────────────────
-  { keys: ["leader"], label: "👑 Leader" },
-  { keys: ["major_npc", "major npc"], label: "👤 Major NPC" },
-  { keys: ["goals"], label: "🎯 Goals", block: true },
-  { keys: ["territory"], label: "🗺️ Territory", block: true },
-  { keys: ["subunits"], label: "🏛️ Subunits", block: true },
-  { keys: ["founded"], label: "📅 Founded" },
-  { keys: ["dissolved"], label: "📅 Dissolved" },
-  { keys: ["reorganized"], label: "📅 Reorganized" },
-
-  // ── Aspect ─────────────────────────────────────────────────
-  { keys: ["appearance"], label: "👤 Appearance", block: true },
-  {
-    keys: ["obtained_by", "obtained by"],
-    label: "🎯 Obtained By",
-    block: true
-  },
-  { keys: ["traits"], label: "✨ Traits", block: true },
-
-  // ── Block-style extras ─────────────────────────────────────
-  { keys: ["special effect"], label: "✨ Special Effect", block: true },
-  { keys: ["obtainment"], label: "🎯 Obtainment", block: true },
-  { keys: ["equipment"], label: "🛡️ Granted By Equipment", block: true },
-  { keys: ["tags"], label: "🏷️ Tags", block: true },
-  {
-    keys: ["mutual exclusives"],
-    label: "🚫 Mutually Exclusive With",
-    block: true
-  },
-  { keys: ["additional info"], label: "📝 Additional Info", block: true }
+const FIELDS = [
+  { k: ["rarity"], l: "🌟 Rarity" },
+  { k: ["category"], l: "🗂️ Category" },
+  { k: ["type"], l: "⚔️ Type" },
+  { k: ["tier"], l: "🏆 Tier" },
+  { k: ["damage"], l: "💥 Damage" },
+  { k: ["damage type", "dmgtype"], l: "🩸 Damage Type" },
+  { k: ["posture damage"], l: "🛡️ Posture Damage" },
+  { k: ["scaling"], l: "📈 Scaling" },
+  { k: ["range"], l: "📏 Range" },
+  { k: ["range type"], l: "📏 Range Type" },
+  { k: ["swing speed"], l: "⚡ Swing Speed" },
+  { k: ["attack duration"], l: "⏱️ Attack Duration" },
+  { k: ["penetration"], l: "🗡️ Penetration" },
+  { k: ["endlag"], l: "⏳ Endlag" },
+  { k: ["enchantable"], l: "✨ Enchantable" },
+  { k: ["ethercost", "ether cost"], l: "💧 Ether Cost" },
+  { k: ["cooldown"], l: "⏱️ Cooldown" },
+  { k: ["droppable"], l: "📦 Droppable" },
+  { k: ["pass down"], l: "🔁 Pass Down" },
+  { k: ["oath_req", "oath req"], l: "📊 Oath Requirement", b: true },
+  { k: ["effects"], l: "✨ Effects", b: true },
+  { k: ["requirements"], l: "📊 Requirements" },
+  { k: ["innate stats", "innate_stats"], l: "📈 Innate Stats", b: true },
+  { k: ["innate talent", "innate tlent"], l: "🎯 Innate Talent" },
+  { k: ["set"], l: "👕 Set" },
+  { k: ["set name"], l: "🏷️ Set Name" },
+  { k: ["set talent"], l: "⚡ Set Talent" },
+  { k: ["styles"], l: "🎨 Styles" },
+  { k: ["weight"], l: "⚖️ Weight" },
+  { k: ["faction"], l: "🏛️ Faction" },
+  { k: ["durability"], l: "🔧 Durability" },
+  { k: ["resistances"], l: "🛡️ Resistances", b: true },
+  { k: ["buffs"], l: "✨ Buffs", b: true },
+  { k: ["talents"], l: "🎯 Talents", b: true },
+  { k: ["stat_req", "stat req"], l: "📊 Stat Requirement" },
+  { k: ["crafting req", "crafting_req"], l: "🔨 Crafting", b: true },
+  { k: ["shirt", "shirt2", "pants"], l: "👕 Slots", b: true },
+  { k: ["price", "selling price", "selling_price", "sell"], l: "💰 Price" },
+  { k: ["affiliation"], l: "🏛️ Affiliation" },
+  { k: ["alias"], l: "📛 Alias" },
+  { k: ["aspect"], l: "✨ Aspect" },
+  { k: ["species"], l: "🧬 Species" },
+  { k: ["pronouns"], l: "👤 Pronouns" },
+  { k: ["family"], l: "👪 Family" },
+  { k: ["purpose"], l: "🎯 Purpose", b: true },
+  { k: ["location", "located"], l: "📍 Location", b: true },
+  { k: ["death"], l: "☠️ Death", b: true },
+  { k: ["deathdate"], l: "📅 Death Date" },
+  { k: ["health"], l: "❤️ Health" },
+  { k: ["weapon"], l: "🗡️ Weapon" },
+  { k: ["moves"], l: "⚔️ Moves", b: true },
+  { k: ["attacks", "tacks"], l: "⚔️ Attacks", b: true },
+  { k: ["behavior"], l: "🧠 Behavior", b: true },
+  { k: ["challenges"], l: "🏆 Challenges", b: true },
+  { k: ["drops"], l: "💧 Drops", b: true },
+  { k: ["locations"], l: "🗺️ Locations", b: true },
+  { k: ["spawn_location", "spawn location"], l: "🗺️ Spawn Location", b: true },
+  { k: ["buff"], l: "✨ Buff", b: true },
+  { k: ["buff strength", "buffstrength"], l: "💪 Buff Strength" },
+  { k: ["value"], l: "💰 Value" },
+  { k: ["stack"], l: "📚 Stack Size" },
+  { k: ["usage"], l: "🛠️ Usage", b: true },
+  { k: ["stomach"], l: "🍖 Stomach" },
+  { k: ["food type"], l: "🍽️ Food Type" },
+  { k: ["habitat"], l: "🌿 Habitat" },
+  { k: ["water"], l: "💧 Water" },
+  { k: ["recipe"], l: "📜 Recipe", b: true },
+  { k: ["area"], l: "🗺️ Area" },
+  { k: ["leader"], l: "👑 Leader" },
+  { k: ["major_npc", "major npc"], l: "👤 Major NPC" },
+  { k: ["goals"], l: "🎯 Goals", b: true },
+  { k: ["territory"], l: "🗺️ Territory", b: true },
+  { k: ["subunits"], l: "🏛️ Subunits", b: true },
+  { k: ["founded"], l: "📅 Founded" },
+  { k: ["dissolved"], l: "📅 Dissolved" },
+  { k: ["reorganized"], l: "📅 Reorganized" },
+  { k: ["appearance"], l: "👤 Appearance", b: true },
+  { k: ["obtained_by", "obtained by"], l: "🎯 Obtained By", b: true },
+  { k: ["traits"], l: "✨ Traits", b: true },
+  { k: ["special effect"], l: "✨ Special Effect", b: true },
+  { k: ["obtainment"], l: "🎯 Obtainment", b: true },
+  { k: ["equipment"], l: "🛡️ Granted By Equipment", b: true },
+  { k: ["tags"], l: "🏷️ Tags", b: true },
+  { k: ["mutual exclusives"], l: "🚫 Mutually Exclusive With", b: true },
+  { k: ["additional info"], l: "📝 Additional Info", b: true },
 ];
 
-function formatFieldText(raw, limit = EMBED_DESC_LIMIT) {
+const ATTS = [
+  "Thundercall",
+  "Flamecharm",
+  "Frostdraw",
+  "Galebreath",
+  "Shadowcast",
+];
+const ATTS_LOWER = ATTS.map((a) => a.toLowerCase());
+
+const JUNK = /^[\s.\-–—…,;:]+$/;
+
+function fmt(raw, max = DESC_MAX) {
   if (!raw) return null;
 
   const lines = raw.split("\n").map((l) => l.trim());
-  const formatted = [];
+  const out = [];
 
   for (const line of lines) {
     if (!line) continue;
     if (line.startsWith("*") || line.startsWith("#")) {
-      let content = line;
-      while (content.startsWith("*") || content.startsWith("#")) {
-        content = content.slice(1).trim();
-      }
-      if (!content) continue;
-      formatted.push(`- ${content}`);
+      let c = line;
+      while (c.startsWith("*") || c.startsWith("#")) c = c.slice(1).trim();
+      if (c) out.push(`- ${c}`);
     } else {
-      formatted.push(line);
+      out.push(line);
     }
   }
 
-  if (formatted.length === 0) return null;
+  if (!out.length) return null;
 
-  let text = formatted.join("\n");
-  text = text.replace(/\n{3,}/g, "\n\n");
-  text = text
+  let text = out
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .replace(/^\s*:\s*$/gm, "")
     .replace(/\n{2,}/g, "\n")
     .trim();
-
-  if (text.length > limit) {
-    text = text.slice(0, limit - 20).trim() + "\n…(truncated)";
-  }
-
+  if (text.length > max)
+    text = text.slice(0, max - 20).trim() + "\n…(truncated)";
   return text;
 }
 
-function inferAttunement(info, pageTitle) {
-  const attunement = getField(info, ["attunement", "element"]);
-  if (attunement) return attunement;
+function attunement(info, title) {
+  const direct = getField(info, ["attunement", "element"]);
+  if (direct) return direct;
 
   const reqs = getField(info, ["reqs", "requirements", "oath_req"]);
   if (reqs) {
-    const match = reqs.match(
-      /\b(Thundercall|Flamecharm|Frostdraw|Galebreath|Shadowcast|Attunementless)\b/i
+    const m = reqs.match(
+      new RegExp(`\\b(${ATTS.join("|")}|Attunementless)\\b`, "i"),
     );
-    if (match) return match[1];
+    if (m) return m[1];
   }
 
-  const titleLower = (pageTitle || "").toLowerCase();
-  const attunements = [
-    "thundercall",
-    "flamecharm",
-    "frostdraw",
-    "galebreath",
-    "shadowcast"
-  ];
-  for (const a of attunements) {
-    if (titleLower.includes(a)) {
-      return a.charAt(0).toUpperCase() + a.slice(1);
-    }
-  }
-  return null;
+  const lower = (title || "").toLowerCase();
+  const idx = ATTS_LOWER.findIndex((a) => lower.includes(a));
+  return idx >= 0 ? ATTS[idx] : null;
 }
+
+const TYPES = [
+  { name: "Mantra", value: "mantra" },
+  { name: "Weapon", value: "weapon" },
+  { name: "Talent", value: "talent" },
+  { name: "Oath", value: "oath" },
+  { name: "Enchantment", value: "enchant" },
+  { name: "Equipment", value: "equip" },
+  { name: "Outfit", value: "outfit" },
+  { name: "Enemy", value: "enemy" },
+  { name: "Monster", value: "monster" },
+  { name: "NPC", value: "npc" },
+  { name: "Item", value: "item" },
+  { name: "Tool", value: "tool" },
+  { name: "Location", value: "location" },
+  { name: "Character", value: "character" },
+  { name: "Faction", value: "faction" },
+  { name: "Aspect", value: "aspect" },
+];
 
 export const data = new SlashCommandBuilder()
   .setName("wiki")
   .setDescription("Look up anything on the Deepwoken Fandom Wiki")
-  .addStringOption((opt) =>
-    opt.setName("name").setDescription("What to look up").setRequired(true)
+  .addStringOption((o) =>
+    o.setName("name").setDescription("What to look up").setRequired(true),
   )
-  .addStringOption((opt) =>
-    opt
+  .addStringOption((o) =>
+    o
       .setName("type")
       .setDescription("Optional: narrow the search to a specific content type")
-      .setRequired(false)
-      .addChoices(
-        { name: "Mantra", value: "mantra" },
-        { name: "Weapon", value: "weapon" },
-        { name: "Talent", value: "talent" },
-        { name: "Oath", value: "oath" },
-        { name: "Enchantment", value: "enchant" },
-        { name: "Equipment", value: "equip" },
-        { name: "Outfit", value: "outfit" },
-        { name: "Enemy", value: "enemy" },
-        { name: "Monster", value: "monster" },
-        { name: "NPC", value: "npc" },
-        { name: "Item", value: "item" },
-        { name: "Tool", value: "tool" },
-        { name: "Location", value: "location" },
-        { name: "Character", value: "character" },
-        { name: "Faction", value: "faction" },
-        { name: "Aspect", value: "aspect" }
-      )
+      .addChoices(...TYPES),
   );
 
-export async function execute(interaction) {
-  await interaction.deferReply();
+export async function execute(i) {
+  await i.deferReply();
 
-  const query = interaction.options.getString("name");
-  const type = interaction.options.getString("type");
+  const q = i.options.getString("name");
+  const type = i.options.getString("type");
+  const page = await searchWiki(q);
 
-  const ownPageTitle = await searchWiki(query);
+  let info = await getPageInfo(page || q, q, type);
+  if (!info && type) info = await getPageInfo(page || q, q, null);
 
-  let pageInfo = await getPageInfo(ownPageTitle || query, query, type);
-
-  if (!pageInfo && type) {
-    pageInfo = await getPageInfo(ownPageTitle || query, query, null);
-  }
-
-  if (!pageInfo) {
-    return interaction.editReply(
-      `❌ No info found for **${query}**${type ? ` (type: ${type})` : ""}.`
+  if (!info) {
+    return i.editReply(
+      `❌ No info found for **${q}**${type ? ` (type: ${type})` : ""}.`,
     );
   }
 
-  const info = pageInfo.infobox;
-  if (Object.keys(info).length === 0) {
-    return interaction.editReply(`❌ No info found for **${query}**.`);
+  if (!Object.keys(info.infobox).length) {
+    return i.editReply(`❌ No info found for **${q}**.`);
   }
 
-  return buildAndSendEmbed(interaction, pageInfo, info);
+  return send(i, info, info.infobox);
 }
 
-function buildAndSendEmbed(interaction, pageInfo, info) {
-  const itemName = getField(info, ["name", "npcname", "title1", "title"]);
-  const displayTitle = pageInfo.redirect
-    ? `${pageInfo.redirect} → ${itemName || pageInfo.title}`
-    : itemName || pageInfo.title;
-  const url = `https://deepwoken.fandom.com/wiki/${encodeURIComponent(
-    pageInfo.title.replace(/ /g, "_")
-  )}`;
+function send(i, page, info) {
+  const name = getField(info, ["name", "npcname", "title1", "title"]);
+  const title = page.redirect
+    ? `${page.redirect} → ${name || page.title}`
+    : name || page.title;
+  const url = `https://deepwoken.fandom.com/wiki/${encodeURIComponent(page.title.replace(/ /g, "_"))}`;
 
   const embed = new EmbedBuilder()
-    .setTitle(displayTitle)
+    .setTitle(title)
     .setURL(url)
     .setColor(0x00aaff)
     .setFooter({ text: "DepthCord • Deepwoken Wiki" });
 
-  if (info.__image_url) {
-    embed.setThumbnail(info.__image_url);
-  }
+  if (info.__image_url) embed.setThumbnail(info.__image_url);
 
-  const description = getField(info, ["description", "effect", "desc"]) || null;
-  embed.setDescription(
-    formatFieldText(description) || "No description available."
-  );
+  const desc = getField(info, ["description", "effect", "desc"]);
+  embed.setDescription(fmt(desc) || "No description available.");
 
-  const attunement = inferAttunement(info, pageInfo.title);
-  const usedKeys = new Set(["attunement", "element"]);
-  if (attunement) {
-    embed.addFields({ name: "✨ Attunement", value: attunement, inline: true });
-  }
+  const att = attunement(info, page.title);
+  const used = new Set(["attunement", "element"]);
 
-  for (const spec of FIELD_DISPLAY) {
-    const value = getField(info, spec.keys);
-    if (!value) continue;
-    if (/^[\s.\-–—…,;:]+$/.test(value)) continue;
-    spec.keys.forEach((k) => usedKeys.add(k));
+  if (att) embed.addFields({ name: "✨ Attunement", value: att, inline: true });
 
-    const formatted = spec.block
-      ? formatFieldText(value, EMBED_FIELD_LIMIT)
-      : value;
-    if (!formatted) continue;
+  for (const f of FIELDS) {
+    const v = getField(info, f.k);
+    if (!v || JUNK.test(v)) continue;
+    f.k.forEach((k) => used.add(k));
+
+    const text = f.b ? fmt(v, FIELD_MAX) : v;
+    if (!text) continue;
 
     embed.addFields({
-      name: spec.label,
+      name: f.l,
       value:
-        formatted.length > EMBED_FIELD_LIMIT
-          ? formatted.slice(0, EMBED_FIELD_LIMIT - 1) + "…"
-          : formatted,
-      inline: !spec.block
+        text.length > FIELD_MAX ? text.slice(0, FIELD_MAX - 1) + "…" : text,
+      inline: !f.b,
     });
   }
 
   for (const key of Object.keys(info)) {
-    if (TITLE_OR_DESC_FIELDS.has(key)) continue;
-    if (HIDDEN_FIELDS.has(key)) continue;
-    if (usedKeys.has(key)) continue;
-    if (key.startsWith("_")) continue;
+    if (
+      TITLE_KEYS.has(key) ||
+      HIDDEN.has(key) ||
+      used.has(key) ||
+      key.startsWith("_")
+    )
+      continue;
 
-    const value = info[key];
-    if (!value) continue;
-    const formatted = formatFieldText(value, EMBED_FIELD_LIMIT);
-    if (!formatted) continue;
+    const v = info[key];
+    if (!v) continue;
+
+    const text = fmt(v, FIELD_MAX);
+    if (!text) continue;
 
     const label = key
       .split(" ")
@@ -358,12 +293,9 @@ function buildAndSendEmbed(interaction, pageInfo, info) {
     embed.addFields({
       name: `❔ ${label}`,
       value:
-        formatted.length > EMBED_FIELD_LIMIT
-          ? formatted.slice(0, EMBED_FIELD_LIMIT - 1) + "…"
-          : formatted,
-      inline: false
+        text.length > FIELD_MAX ? text.slice(0, FIELD_MAX - 1) + "…" : text,
     });
   }
 
-  return interaction.editReply({ embeds: [embed] });
+  return i.editReply({ embeds: [embed] });
 }

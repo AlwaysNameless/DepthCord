@@ -8,7 +8,8 @@ import { startScheduler } from "./utils/scheduler.js";
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dir = path.dirname(fileURLToPath(import.meta.url));
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -19,50 +20,46 @@ const client = new Client({
 
 client.commands = new Collection();
 
-const commandsPath = path.join(__dirname, "commands");
-if (fs.existsSync(commandsPath)) {
-  const commandFiles = fs
-    .readdirSync(commandsPath)
-    .filter((f) => f.endsWith(".js"));
-  for (const file of commandFiles) {
-    const filePath = path.join(commandsPath, file);
-    const cmd = await import(pathToFileURL(filePath).href);
+const cmdDir = path.join(dir, "commands");
+
+if (fs.existsSync(cmdDir)) {
+  const files = fs.readdirSync(cmdDir).filter((f) => f.endsWith(".js"));
+
+  for (const file of files) {
+    const full = path.join(cmdDir, file);
+    const cmd = await import(pathToFileURL(full).href);
+
     if (cmd.data && cmd.execute) {
       client.commands.set(cmd.data.name, cmd);
     } else {
-      console.warn(
-        `[WARNING] Command at ${filePath} missing required "data" or "execute".`,
-      );
+      console.warn(`[WARNING] ${full} missing "data" or "execute"`);
     }
   }
 }
 
-client.on("interactionCreate", async (interaction) => {
+client.on("interactionCreate", async (i) => {
   try {
-    if (interaction.isAutocomplete()) {
-      const command = client.commands.get(interaction.commandName);
-      if (command && command.autocomplete) {
+    if (i.isAutocomplete()) {
+      const cmd = client.commands.get(i.commandName);
+      if (cmd?.autocomplete) {
         try {
-          await command.autocomplete(interaction);
-        } catch (error) {
-          console.error(
-            `Autocomplete error for ${interaction.commandName}:`,
-            error,
-          );
+          await cmd.autocomplete(i);
+        } catch (e) {
+          console.error(`Autocomplete error for ${i.commandName}:`, e);
         }
       }
       return;
     }
 
-    if (interaction.isButton()) {
-      const command = client.commands.get("event");
-      if (command && command.handleButton) {
+    if (i.isButton()) {
+      const cmd = client.commands.get("event");
+      if (cmd?.handleButton) {
         try {
-          await command.handleButton(interaction);
-        } catch (error) {
-          console.error("Button handler error:", error);
-          if (!interaction.replied) {
-            await interaction.reply({
+          await cmd.handleButton(i);
+        } catch (e) {
+          console.error("Button handler error:", e);
+          if (!i.replied) {
+            await i.reply({
               content: "There was an error processing this button.",
               flags: 64,
             });
@@ -72,42 +69,35 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    if (interaction.isStringSelectMenu()) {
-      return;
-    }
+    if (i.isStringSelectMenu()) return;
 
-    if (interaction.isChatInputCommand()) {
-      const command = client.commands.get(interaction.commandName);
-      if (!command) {
-        return interaction.reply({
-          content: "❌ Command not found.",
-          flags: 64,
-        });
+    if (i.isChatInputCommand()) {
+      const cmd = client.commands.get(i.commandName);
+
+      if (!cmd) {
+        return i.reply({ content: "❌ Command not found.", flags: 64 });
       }
 
       try {
-        await command.execute(interaction);
-      } catch (error) {
-        console.error(`Error executing ${interaction.commandName}:`, error);
-
-        const errorMsg = "There was an error executing this command.";
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp({ content: errorMsg, flags: 64 });
+        await cmd.execute(i);
+      } catch (e) {
+        console.error(`Error executing ${i.commandName}:`, e);
+        const msg = "There was an error executing this command.";
+        if (i.replied || i.deferred) {
+          await i.followUp({ content: msg, flags: 64 });
         } else {
-          await interaction.reply({ content: errorMsg, flags: 64 });
+          await i.reply({ content: msg, flags: 64 });
         }
       }
-      return;
     }
-  } catch (err) {
-    console.error("Unhandled interaction error:", err);
+  } catch (e) {
+    console.error("Unhandled interaction error:", e);
   }
 });
 
-client.on("messageCreate", (message) => {
-  if (message.author.bot) return;
-  if (message.content !== "!ping") return;
-  message.reply("pong");
+client.on("messageCreate", (m) => {
+  if (m.author.bot || m.content !== "!ping") return;
+  m.reply("pong");
 });
 
 client.once("ready", (c) => {
