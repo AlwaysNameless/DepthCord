@@ -11,18 +11,11 @@ yarn.lock
 .env.*
 !.env.example
 
-.venv
-.venv.*
-!.venv.example
-
 # Database
 data/*.db
 data/*.db-*
 *.sqlite
 *.sqlite3
-
-# Wiki dump
-wiki_dump/
 
 # OS
 .DS_Store
@@ -38,4 +31,11 @@ Thumbs.db
 dist/
 build/
 logs/
-*.log.env
+*.log
+
+# Local dev stuff, not for the repo
+TUTOR.md
+DOCS.md
+tools/
+wiki_dump/
+.venv/
